@@ -6,12 +6,15 @@ import {
   CircleDollarSign,
   RefreshCw,
   ServerCog,
+  SlidersHorizontal,
+  Star,
   UserCheck,
 } from 'lucide-react';
 import { getEmployees } from '../api/services/employeesService';
 import { getAttendance } from '../api/services/attendanceService';
 import { getPayroll } from '../api/services/payrollService';
 import { getSyncStatus } from '../api/services/syncService';
+import { listRecords } from '../api/services/srsService';
 import Button from '../components/ui/Button';
 import InfoCard from '../components/ui/InfoCard';
 import InlineMessage from '../components/ui/InlineMessage';
@@ -41,6 +44,7 @@ export default function Dashboard() {
     payroll: [],
     payrollMeta: null,
     syncStatus: null,
+    srs: {},
     loading: true,
     error: '',
     lastUpdated: null,
@@ -55,12 +59,31 @@ export default function Dashboard() {
     }
 
     try {
-      const [employeesResponse, attendanceResponse, payrollResponse, syncResponse] =
+      const [
+        employeesResponse,
+        attendanceResponse,
+        payrollResponse,
+        syncResponse,
+        lifecycleResponse,
+        leaveResponse,
+        overtimeResponse,
+        benefitsResponse,
+        kpiResponse,
+        adjustmentsResponse,
+        backupResponse,
+      ] =
         await Promise.all([
           getEmployees(),
           getAttendance(),
           getPayroll(),
           getSyncStatus(),
+          listRecords('/employee-lifecycle', { limit: 100 }),
+          listRecords('/leave-requests', { limit: 100 }),
+          listRecords('/overtime-requests', { limit: 100 }),
+          listRecords('/benefits-insurance', { limit: 100 }),
+          listRecords('/kpi-okr', { limit: 100 }),
+          listRecords('/payroll-adjustments', { limit: 100 }),
+          listRecords('/system-backup', { limit: 10 }),
         ]);
 
       setState({
@@ -71,6 +94,15 @@ export default function Dashboard() {
         payroll: payrollResponse.data ?? [],
         payrollMeta: payrollResponse.meta ?? null,
         syncStatus: syncResponse,
+        srs: {
+          lifecycle: lifecycleResponse.data ?? [],
+          leave: leaveResponse.data ?? [],
+          overtime: overtimeResponse.data ?? [],
+          benefits: benefitsResponse.data ?? [],
+          kpi: kpiResponse.data ?? [],
+          adjustments: adjustmentsResponse.data ?? [],
+          backups: backupResponse.data ?? [],
+        },
         loading: false,
         error: '',
         lastUpdated: new Date().toISOString(),
@@ -105,6 +137,17 @@ export default function Dashboard() {
     0,
   );
   const activeEmployees = getActiveEmployeesCount(state.employees);
+  const lifecycleActive = state.srs.lifecycle?.filter((item) => item.EventType !== 'Terminated').length ?? 0;
+  const leaveOvertime = (state.srs.leave?.length ?? 0) + (state.srs.overtime?.length ?? 0);
+  const benefitsCost = (state.srs.benefits ?? []).reduce(
+    (sum, item) => sum + Number(item.MonthlyCost ?? 0),
+    0,
+  );
+  const averageKpi =
+    state.srs.kpi?.length > 0
+      ? state.srs.kpi.reduce((sum, item) => sum + Number(item.Score ?? 0), 0) / state.srs.kpi.length
+      : 0;
+  const latestBackup = state.srs.backups?.[0]?.Status ?? 'Chưa có';
 
   const connections = state.syncStatus?.connections ?? {};
   const apiHealthy = Object.values(connections).every(
@@ -159,6 +202,37 @@ export default function Dashboard() {
           subtitle="Nhân viên đang ở trạng thái hoạt động"
           icon={UserCheck}
           accent="bg-sky-50 text-sky-700"
+        />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          title="Hồ sơ vòng đời"
+          value={state.loading ? '...' : formatCompactNumber(lifecycleActive)}
+          subtitle="Số bản ghi vòng đời chưa ở trạng thái nghỉ việc"
+          icon={UserCheck}
+          accent="bg-cyan-50 text-cyan-700"
+        />
+        <StatCard
+          title="Nghỉ phép / tăng ca"
+          value={state.loading ? '...' : formatCompactNumber(leaveOvertime)}
+          subtitle="Tổng số đơn nghỉ phép và tăng ca"
+          icon={CalendarCheck2}
+          accent="bg-amber-50 text-amber-700"
+        />
+        <StatCard
+          title="Chi phí phúc lợi"
+          value={state.loading ? '...' : formatCurrency(benefitsCost)}
+          subtitle="Tổng chi phí phúc lợi và bảo hiểm hằng tháng"
+          icon={SlidersHorizontal}
+          accent="bg-emerald-50 text-emerald-700"
+        />
+        <StatCard
+          title="KPI trung bình"
+          value={state.loading ? '...' : averageKpi.toFixed(1)}
+          subtitle={`Điều chỉnh lương: ${state.srs.adjustments?.length ?? 0}. Sao lưu: ${latestBackup}`}
+          icon={Star}
+          accent="bg-violet-50 text-violet-700"
         />
       </div>
 

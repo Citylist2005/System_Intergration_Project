@@ -15,6 +15,6 @@ export class FindEmployeesQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(EMPLOYEE_STATUS_OPTIONS)
+  @IsIn([...EMPLOYEE_STATUS_OPTIONS, 'ALL'])
   status?: string;
 }

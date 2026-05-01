@@ -5,9 +5,11 @@ import { PayrollDepartment } from '../../database/payroll/entities/departments-p
 import { PayrollPosition } from '../../database/payroll/entities/positions-payroll.entity';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
+    AuditModule,
     TypeOrmModule.forFeature(
       [EmployeesPayroll, PayrollDepartment, PayrollPosition],
       'payrollConnection',

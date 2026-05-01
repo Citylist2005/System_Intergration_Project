@@ -6,6 +6,7 @@ interface TokenPayload {
   sub: number;
   username: string;
   role: string;
+  employeeId?: number | null;
   exp: number;
 }
 

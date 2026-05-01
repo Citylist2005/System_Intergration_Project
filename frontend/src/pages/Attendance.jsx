@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
-import { getAttendance, getAttendanceSummary } from '../api/services/attendanceService';
+import { Pencil, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  getAttendance,
+  getAttendanceSummary,
+  updateAttendance,
+  upsertManualAttendance,
+} from '../api/services/attendanceService';
 import Button from '../components/ui/Button';
 import DataTable from '../components/ui/DataTable';
 import EmptyState from '../components/ui/EmptyState';
-import { SelectField } from '../components/ui/Field';
+import { InputField, SelectField } from '../components/ui/Field';
 import InfoCard from '../components/ui/InfoCard';
 import InlineMessage from '../components/ui/InlineMessage';
+import Modal from '../components/ui/Modal';
 import PageHeader from '../components/ui/PageHeader';
 import SectionToolbar from '../components/ui/SectionToolbar';
 import { monthOptions, yearOptions } from '../utils/constants';
@@ -20,6 +26,18 @@ export default function Attendance() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [modalMode, setModalMode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    AttendanceID: '',
+    employeeId: '',
+    month: new Date().getMonth() + 1,
+    year: new Date().getFullYear(),
+    workDays: 26,
+    absentDays: 0,
+    leaveDays: 0,
+    overtimeHours: 0,
+  });
 
   async function loadAttendance(activeFilters = filters, { silent = false } = {}) {
     if (silent) {
@@ -44,9 +62,7 @@ export default function Attendance() {
       setMeta(attendanceResponse.meta ?? null);
       setSummary(summaryResponse.data ?? []);
     } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : 'Không thể tải dữ liệu chấm công.',
-      );
+      setError(loadError?.message || 'Không thể tải dữ liệu chấm công.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -72,7 +88,67 @@ export default function Attendance() {
     workDays: sumValues(summary, 'WorkDays'),
     absentDays: sumValues(summary, 'AbsentDays'),
     leaveDays: sumValues(summary, 'LeaveDays'),
+    overtimeHours: sumValues(summary, 'OvertimeHours'),
   };
+
+  function openCreateModal() {
+    setForm({
+      AttendanceID: '',
+      employeeId: '',
+      month: filters.month || new Date().getMonth() + 1,
+      year: filters.year || new Date().getFullYear(),
+      workDays: 26,
+      absentDays: 0,
+      leaveDays: 0,
+      overtimeHours: 0,
+    });
+    setModalMode('create');
+  }
+
+  function openEditModal(row) {
+    const date = new Date(row.AttendanceMonth);
+    setForm({
+      AttendanceID: row.AttendanceID,
+      employeeId: row.EmployeeID,
+      month: date.getUTCMonth() + 1,
+      year: date.getUTCFullYear(),
+      workDays: row.WorkDays ?? 0,
+      absentDays: row.AbsentDays ?? 0,
+      leaveDays: row.LeaveDays ?? 0,
+      overtimeHours: row.OvertimeHours ?? 0,
+    });
+    setModalMode('edit');
+  }
+
+  async function saveManualAttendance(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+
+    const payload = {
+      employeeId: Number(form.employeeId),
+      month: Number(form.month),
+      year: Number(form.year),
+      workDays: Number(form.workDays),
+      absentDays: Number(form.absentDays),
+      leaveDays: Number(form.leaveDays),
+      overtimeHours: Number(form.overtimeHours),
+    };
+
+    try {
+      if (modalMode === 'edit') {
+        await updateAttendance(Number(form.AttendanceID), payload);
+      } else {
+        await upsertManualAttendance(payload);
+      }
+      setModalMode('');
+      await loadAttendance(filters, { silent: true });
+    } catch (saveError) {
+      setError(saveError?.response?.data?.message || saveError?.message || 'Không thể lưu dữ liệu công.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const columns = [
     {
@@ -90,6 +166,17 @@ export default function Attendance() {
     { key: 'WorkDays', header: 'Ngày công' },
     { key: 'AbsentDays', header: 'Ngày vắng' },
     { key: 'LeaveDays', header: 'Ngày nghỉ phép' },
+    { key: 'OvertimeHours', header: 'Giờ tăng ca' },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      render: (row) => (
+        <Button variant="secondary" size="sm" onClick={() => openEditModal(row)}>
+          <Pencil className="mr-2 h-4 w-4" />
+          Sửa công
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -97,22 +184,28 @@ export default function Attendance() {
       <PageHeader
         eyebrow="Chấm công"
         title="Quản lý chấm công"
-        description="Lọc theo tháng, năm và tên nhân viên để theo dõi số liệu chấm công tổng hợp."
+        description="Lọc theo tháng, năm và tên nhân viên để theo dõi số liệu công, vắng, nghỉ phép và tăng ca."
         action={
-          <Button
-            variant="secondary"
-            loading={refreshing}
-            onClick={() => loadAttendance(filters, { silent: true })}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Làm mới
-          </Button>
+          <div className="flex gap-3">
+            <Button onClick={openCreateModal}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nhập công
+            </Button>
+            <Button
+              variant="secondary"
+              loading={refreshing}
+              onClick={() => loadAttendance(filters, { silent: true })}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Làm mới
+            </Button>
+          </div>
         }
       />
 
       {error ? <InlineMessage tone="danger">{error}</InlineMessage> : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-4">
         <InfoCard title="Tổng ngày công">
           <p className="text-3xl font-semibold text-slate-900">
             {formatCompactNumber(summaryTotals.workDays)}
@@ -126,6 +219,11 @@ export default function Attendance() {
         <InfoCard title="Tổng ngày nghỉ phép">
           <p className="text-3xl font-semibold text-slate-900">
             {formatCompactNumber(summaryTotals.leaveDays)}
+          </p>
+        </InfoCard>
+        <InfoCard title="Tổng giờ tăng ca">
+          <p className="text-3xl font-semibold text-slate-900">
+            {formatCompactNumber(summaryTotals.overtimeHours)}
           </p>
         </InfoCard>
       </div>
@@ -189,6 +287,29 @@ export default function Attendance() {
           />
         )}
       </InfoCard>
+
+      <Modal
+        open={Boolean(modalMode)}
+        title={modalMode === 'edit' ? 'Cập nhật dữ liệu công' : 'Nhập công thủ công'}
+        description="Nhập ngày công, ngày vắng, ngày nghỉ phép và giờ tăng ca theo kỳ."
+        onClose={() => setModalMode('')}
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setModalMode('')}>Hủy</Button>
+            <Button loading={saving} onClick={saveManualAttendance}>Lưu</Button>
+          </div>
+        }
+      >
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={saveManualAttendance}>
+          <InputField label="Mã nhân viên" type="number" value={form.employeeId} disabled={modalMode === 'edit'} onChange={(event) => setForm((current) => ({ ...current, employeeId: event.target.value }))} />
+          <InputField label="Tháng" type="number" value={form.month} disabled={modalMode === 'edit'} onChange={(event) => setForm((current) => ({ ...current, month: event.target.value }))} />
+          <InputField label="Năm" type="number" value={form.year} disabled={modalMode === 'edit'} onChange={(event) => setForm((current) => ({ ...current, year: event.target.value }))} />
+          <InputField label="Ngày công" type="number" value={form.workDays} onChange={(event) => setForm((current) => ({ ...current, workDays: event.target.value }))} />
+          <InputField label="Ngày vắng" type="number" value={form.absentDays} onChange={(event) => setForm((current) => ({ ...current, absentDays: event.target.value }))} />
+          <InputField label="Ngày nghỉ phép" type="number" value={form.leaveDays} onChange={(event) => setForm((current) => ({ ...current, leaveDays: event.target.value }))} />
+          <InputField label="Giờ tăng ca" type="number" value={form.overtimeHours} onChange={(event) => setForm((current) => ({ ...current, overtimeHours: event.target.value }))} />
+        </form>
+      </Modal>
     </div>
   );
 }

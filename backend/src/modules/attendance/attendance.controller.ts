@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { AttendanceQueryDto, AttendanceSummaryQueryDto } from './dto/attendance-query.dto';
 
@@ -33,5 +34,37 @@ export class AttendanceController {
       month: query.month,
       year: query.year,
     });
+  }
+
+  @Post('manual')
+  async upsertManual(
+    @Body()
+    body: {
+      employeeId: number;
+      month: number;
+      year: number;
+      workDays: number;
+      absentDays: number;
+      leaveDays: number;
+      overtimeHours?: number;
+    },
+    @Req() request: Request & { user?: { sub?: number; username?: string; role?: string } },
+  ) {
+    return this.attendanceService.upsertManual(body, request.user, request.ip);
+  }
+
+  @Put(':id')
+  async updateManual(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      workDays: number;
+      absentDays: number;
+      leaveDays: number;
+      overtimeHours?: number;
+    },
+    @Req() request: Request & { user?: { sub?: number; username?: string; role?: string } },
+  ) {
+    return this.attendanceService.updateManual(id, body, request.user, request.ip);
   }
 }

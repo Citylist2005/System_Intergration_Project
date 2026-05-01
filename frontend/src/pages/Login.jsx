@@ -7,7 +7,7 @@ const stats = [
   { label: 'Nhân viên', value: '200+' },
   { label: 'Phòng ban', value: '10+' },
   { label: 'Bản ghi lương', value: '2K+' },
-  { label: 'Uptime', value: '99.9%' },
+  { label: 'Thời gian hoạt động', value: '99.9%' },
 ];
 
 export default function Login() {
@@ -88,7 +88,7 @@ export default function Login() {
             </div>
 
             <h1 className="max-w-lg text-5xl font-extrabold leading-tight text-white">
-              HR & Payroll Management System
+              Hệ thống quản lý nhân sự và tiền lương
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8" style={{ color: 'rgba(255,255,255,0.72)' }}>
               Quản lý nhân sự, chấm công và bảng lương tập trung. Đồng bộ dữ liệu thời gian thực giữa hệ thống legacy SQL Server và MySQL.
@@ -261,7 +261,7 @@ export default function Login() {
             </form>
 
             <p className="mt-8 text-center text-xs" style={{ color: 'var(--color-muted)' }}>
-              CMU-CS-445 · HR Payroll Integration System
+              CMU-CS-445 · Hệ thống tích hợp nhân sự và tiền lương
             </p>
           </div>
         </section>

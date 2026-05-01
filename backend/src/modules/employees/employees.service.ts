@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Like, Not, Repository } from 'typeorm';
 import { EmployeesPayroll } from '../../database/payroll/entities/employees-payroll.entity';
 import { normalizeEmployeeStatus } from '../../common/employee-status';
+import { AuditActor, AuditService } from '../audit/audit.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
@@ -23,6 +24,7 @@ export class EmployeesService {
   constructor(
     @InjectRepository(EmployeesPayroll, 'payrollConnection')
     private readonly employeesPayrollRepo: Repository<EmployeesPayroll>,
+    private readonly auditService: AuditService,
   ) {}
 
   private serializeEmployee(employee: EmployeesPayroll) {
@@ -57,9 +59,9 @@ export class EmployeesService {
     if (departmentId) {
       where.DepartmentID = departmentId;
     }
-    if (status) {
+    if (status && status !== 'ALL') {
       where.Status = normalizeEmployeeStatus(status);
-    } else {
+    } else if (!status) {
       where.Status = Not('Inactive');
     }
 
@@ -83,14 +85,14 @@ export class EmployeesService {
     };
   }
 
-  async create(createEmployeeDto: CreateEmployeeDto) {
+  async create(createEmployeeDto: CreateEmployeeDto, actor?: AuditActor, ipAddress?: string) {
     const existingEmployee = await this.employeesPayrollRepo.findOne({
       where: { EmployeeID: createEmployeeDto.EmployeeID },
     });
 
     if (existingEmployee) {
       throw new ConflictException(
-        `Employee ${createEmployeeDto.EmployeeID} already exists`,
+        `Mã nhân viên ${createEmployeeDto.EmployeeID} đã tồn tại trong cơ sở dữ liệu`,
       );
     }
 
@@ -101,6 +103,14 @@ export class EmployeesService {
     });
 
     const savedEmployee = await this.employeesPayrollRepo.save(employee);
+    await this.auditService.write({
+      actor,
+      action: 'CREATE',
+      entityType: 'Employee',
+      entityId: savedEmployee.EmployeeID,
+      newValues: savedEmployee,
+      ipAddress,
+    });
 
     return {
       status: 'success',
@@ -109,7 +119,12 @@ export class EmployeesService {
     };
   }
 
-  async update(employeeId: number, updateEmployeeDto: UpdateEmployeeDto) {
+  async update(
+    employeeId: number,
+    updateEmployeeDto: UpdateEmployeeDto,
+    actor?: AuditActor,
+    ipAddress?: string,
+  ) {
     const employee = await this.employeesPayrollRepo.findOne({
       where: { EmployeeID: employeeId },
     });
@@ -118,12 +133,22 @@ export class EmployeesService {
       throw new NotFoundException(`Employee ${employeeId} not found`);
     }
 
+    const before = { ...employee };
     Object.assign(employee, updateEmployeeDto, {
       Status: normalizeEmployeeStatus(updateEmployeeDto.Status),
       SyncedAt: new Date(),
     });
 
     const savedEmployee = await this.employeesPayrollRepo.save(employee);
+    await this.auditService.write({
+      actor,
+      action: 'UPDATE',
+      entityType: 'Employee',
+      entityId: savedEmployee.EmployeeID,
+      oldValues: before,
+      newValues: savedEmployee,
+      ipAddress,
+    });
 
     return {
       status: 'success',
@@ -132,7 +157,7 @@ export class EmployeesService {
     };
   }
 
-  async softDelete(employeeId: number) {
+  async softDelete(employeeId: number, actor?: AuditActor, ipAddress?: string) {
     const employee = await this.employeesPayrollRepo.findOne({
       where: { EmployeeID: employeeId },
     });
@@ -141,10 +166,20 @@ export class EmployeesService {
       throw new NotFoundException(`Employee ${employeeId} not found`);
     }
 
+    const before = { ...employee };
     employee.Status = 'Inactive';
     employee.SyncedAt = new Date();
 
     const savedEmployee = await this.employeesPayrollRepo.save(employee);
+    await this.auditService.write({
+      actor,
+      action: 'DELETE',
+      entityType: 'Employee',
+      entityId: savedEmployee.EmployeeID,
+      oldValues: before,
+      newValues: savedEmployee,
+      ipAddress,
+    });
 
     return {
       status: 'success',

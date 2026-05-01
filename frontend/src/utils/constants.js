@@ -24,7 +24,7 @@ export const yearOptions = [
 export const STATUS_OPTIONS = ['Active', 'On Leave', 'Probation', 'Intern', 'Inactive'];
 
 export const employeeStatusOptions = [
-  { value: '', label: 'Tất cả trạng thái' },
+  { value: 'ALL', label: 'Tất cả trạng thái' },
   { value: 'Active', label: 'Đang làm việc' },
   { value: 'On Leave', label: 'Nghỉ phép' },
   { value: 'Probation', label: 'Thử việc' },

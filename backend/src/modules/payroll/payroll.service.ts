@@ -4,6 +4,10 @@ import { Repository } from 'typeorm';
 import { Salary } from '../../database/payroll/entities/salaries.entity';
 import { EmployeesPayroll } from '../../database/payroll/entities/employees-payroll.entity';
 import { Attendance } from '../../database/payroll/entities/attendance.entity';
+import { SalaryPolicy } from '../../database/payroll/entities/salary-policy.entity';
+import { BenefitsInsurance } from '../../database/payroll/entities/benefits-insurance.entity';
+import { PayrollAdjustment } from '../../database/payroll/entities/payroll-adjustment.entity';
+import { OvertimeRequest } from '../../database/payroll/entities/overtime-request.entity';
 import { isPayrollEligibleStatus } from '../../common/employee-status';
 import { UpdatePayrollDto, UpsertPayrollDto } from './dto/manual-payroll.dto';
 
@@ -29,6 +33,18 @@ export class PayrollService {
 
     @InjectRepository(Attendance, 'payrollConnection')
     private readonly attendanceRepo: Repository<Attendance>,
+
+    @InjectRepository(SalaryPolicy, 'payrollConnection')
+    private readonly salaryPolicyRepo: Repository<SalaryPolicy>,
+
+    @InjectRepository(BenefitsInsurance, 'payrollConnection')
+    private readonly benefitsRepo: Repository<BenefitsInsurance>,
+
+    @InjectRepository(PayrollAdjustment, 'payrollConnection')
+    private readonly adjustmentRepo: Repository<PayrollAdjustment>,
+
+    @InjectRepository(OvertimeRequest, 'payrollConnection')
+    private readonly overtimeRepo: Repository<OvertimeRequest>,
   ) {}
 
   async findAll(params: FindAllParams) {
@@ -102,6 +118,10 @@ export class PayrollService {
       AbsentDays: number | null;
       LeaveDays: number | null;
       AttendanceDeduction: number;
+      OvertimePay: number;
+      BenefitDeductions: number;
+      PayrollAdjustments: number;
+      TaxDeduction: number;
       NetSalary: number;
     }> = [];
     let totalNetSalary = 0;
@@ -141,13 +161,22 @@ export class PayrollService {
         baseSalary,
         attendance,
       );
+      const policyInputs = await this.calculatePolicyInputs(
+        employee.EmployeeID,
+        month,
+        year,
+        baseSalary,
+      );
 
-      // NetSalary = Lương cơ bản + Thưởng - Khấu trừ
+      // NetSalary includes policy, benefit, overtime and adjustment inputs.
       const netSalary = this.calculateNetSalary(
         baseSalary,
-        bonus,
-        deductions,
-        attendanceDeduction,
+        bonus + policyInputs.overtimePay + policyInputs.adjustmentAdditions,
+        deductions +
+          attendanceDeduction +
+          policyInputs.benefitDeductions +
+          policyInputs.adjustmentDeductions +
+          policyInputs.taxDeduction,
       );
 
       let salary = existingRecord;
@@ -155,8 +184,12 @@ export class PayrollService {
       if (salary) {
         Object.assign(salary, {
           BaseSalary: baseSalary,
-          Bonus: bonus,
-          Deductions: deductions,
+          Bonus: bonus + policyInputs.overtimePay + policyInputs.adjustmentAdditions,
+          Deductions:
+            deductions +
+            policyInputs.benefitDeductions +
+            policyInputs.adjustmentDeductions +
+            policyInputs.taxDeduction,
           NetSalary: netSalary,
           CreatedAt: new Date(),
         });
@@ -188,6 +221,11 @@ export class PayrollService {
         AbsentDays: attendance?.AbsentDays ?? null,
         LeaveDays: attendance?.LeaveDays ?? null,
         AttendanceDeduction: attendanceDeduction,
+        OvertimePay: policyInputs.overtimePay,
+        BenefitDeductions: policyInputs.benefitDeductions,
+        PayrollAdjustments:
+          policyInputs.adjustmentAdditions - policyInputs.adjustmentDeductions,
+        TaxDeduction: policyInputs.taxDeduction,
         NetSalary: netSalary,
       });
     }
@@ -307,8 +345,7 @@ export class PayrollService {
     salary.NetSalary = this.calculateNetSalary(
       baseSalary,
       bonus,
-      deductions,
-      attendanceDeduction,
+      deductions + attendanceDeduction,
     );
     salary.CreatedAt = new Date();
   }
@@ -330,10 +367,65 @@ export class PayrollService {
   private calculateNetSalary(
     baseSalary: number,
     bonus: number,
-    manualDeductions: number,
-    attendanceDeduction: number,
+    deductions: number,
   ) {
-    return baseSalary + bonus - manualDeductions - attendanceDeduction;
+    return Math.max(0, baseSalary + bonus - deductions);
+  }
+
+  private async calculatePolicyInputs(
+    employeeId: number,
+    month: number,
+    year: number,
+    baseSalary: number,
+  ) {
+    const activePolicy = await this.salaryPolicyRepo.findOne({
+      where: { IsActive: true },
+      order: { EffectiveDate: 'DESC', PolicyID: 'DESC' },
+    });
+    const overtimeRate = Number(activePolicy?.OvertimeRate ?? 1.5);
+    const taxRate = Number(activePolicy?.TaxRate ?? 0);
+    const hourlyBase = baseSalary > 0 ? baseSalary / STANDARD_WORK_DAYS_PER_MONTH / 8 : 0;
+
+    const overtimeRows = await this.overtimeRepo
+      .createQueryBuilder('ot')
+      .where('ot.EmployeeID = :employeeId', { employeeId })
+      .andWhere('MONTH(ot.OvertimeDate) = :month', { month })
+      .andWhere('YEAR(ot.OvertimeDate) = :year', { year })
+      .andWhere("ot.Status = 'Approved'")
+      .getMany();
+    const overtimeHours = overtimeRows.reduce((sum, row) => sum + Number(row.Hours ?? 0), 0);
+    const overtimePay = Math.round(overtimeHours * hourlyBase * overtimeRate);
+
+    const benefits = await this.benefitsRepo.find({
+      where: { EmployeeID: employeeId, Status: 'Active' },
+    });
+    const benefitDeductions = benefits.reduce(
+      (sum, row) => sum + Number(row.EmployeeShare ?? 0),
+      0,
+    );
+
+    const adjustments = await this.adjustmentRepo
+      .createQueryBuilder('adjustment')
+      .where('adjustment.EmployeeID = :employeeId', { employeeId })
+      .andWhere('MONTH(adjustment.SalaryMonth) = :month', { month })
+      .andWhere('YEAR(adjustment.SalaryMonth) = :year', { year })
+      .andWhere("adjustment.Status IN ('Approved', 'Applied')")
+      .getMany();
+    const adjustmentAdditions = adjustments
+      .filter((row) => ['Bonus', 'Allowance', 'Commission'].includes(row.AdjustType))
+      .reduce((sum, row) => sum + Number(row.Amount ?? 0), 0);
+    const adjustmentDeductions = adjustments
+      .filter((row) => row.AdjustType === 'Deduction')
+      .reduce((sum, row) => sum + Number(row.Amount ?? 0), 0);
+    const taxDeduction = Math.round((baseSalary * taxRate) / 100);
+
+    return {
+      overtimePay,
+      benefitDeductions,
+      adjustmentAdditions,
+      adjustmentDeductions,
+      taxDeduction,
+    };
   }
 
   private calculateAttendanceDeduction(
@@ -365,10 +457,23 @@ export class PayrollService {
 
   private async serializeSalaryRecord(record: Salary) {
     const salaryMonth = new Date(record.SalaryMonth);
+    const month = salaryMonth.getUTCMonth() + 1;
+    const year = salaryMonth.getUTCFullYear();
+    const baseSalary = Number(record.BaseSalary ?? 0);
     const attendance = await this.findAttendanceByEmployeeAndPeriod(
       record.EmployeeID,
-      salaryMonth.getUTCMonth() + 1,
-      salaryMonth.getUTCFullYear(),
+      month,
+      year,
+    );
+    const attendanceDeduction = this.calculateAttendanceDeduction(
+      baseSalary,
+      attendance,
+    );
+    const policyInputs = await this.calculatePolicyInputs(
+      record.EmployeeID,
+      month,
+      year,
+      baseSalary,
     );
 
     return {
@@ -379,10 +484,12 @@ export class PayrollService {
       BaseSalary: record.BaseSalary,
       Bonus: record.Bonus,
       Deductions: record.Deductions,
-      AttendanceDeduction: this.calculateAttendanceDeduction(
-        Number(record.BaseSalary ?? 0),
-        attendance,
-      ),
+      AttendanceDeduction: attendanceDeduction,
+      OvertimePay: policyInputs.overtimePay,
+      BenefitDeductions: policyInputs.benefitDeductions,
+      PayrollAdjustments:
+        policyInputs.adjustmentAdditions - policyInputs.adjustmentDeductions,
+      TaxDeduction: policyInputs.taxDeduction,
       WorkDays: attendance?.WorkDays ?? null,
       AbsentDays: attendance?.AbsentDays ?? null,
       LeaveDays: attendance?.LeaveDays ?? null,

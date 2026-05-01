@@ -442,3 +442,17 @@ npm start
 admin@docusync.local
 change-me
 ```
+
+## 14. Ghi Chu Demo Cuoi
+
+Neu cac module moi nhu Ca lam viec, Nghi phep, KPI/OKR, Danh gia hoac Quan tri chua co du lieu, chay:
+
+```powershell
+cd D:\CMU-CS-445\Source\backend
+node scripts\apply-new-tables.js
+node scripts\seed-srs-demo-data.js
+```
+
+Du lieu seed chi dung de demo va test UI, khong thay the du lieu that trong SQL Server/MySQL.
+
+Chuc nang sao luu database se tao ban ghi lich su trong he thong. De backup MySQL that, may can co `mysqldump` trong PATH va cau hinh dung bien database trong `backend\.env`.

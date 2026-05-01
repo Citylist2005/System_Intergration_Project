@@ -336,7 +336,18 @@ export default function Payroll() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
-                  {['Tháng lương', 'Lương cơ bản', 'Thưởng', 'Khấu trừ', 'Khấu trừ vắng mặt', 'Thực lĩnh', 'Thao tác'].map((h) => (
+                  {[
+                    'Tháng lương',
+                    'Lương cơ bản',
+                    'Thưởng',
+                    'Tăng ca',
+                    'Điều chỉnh',
+                    'Khấu trừ',
+                    'Vắng mặt',
+                    'Phúc lợi/thuế',
+                    'Thực lĩnh',
+                    'Thao tác',
+                  ].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
@@ -351,7 +362,7 @@ export default function Payroll() {
                 {loading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      {Array.from({ length: 7 }).map((__, j) => (
+                      {Array.from({ length: 10 }).map((__, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 animate-pulse rounded" style={{ background: 'var(--color-bg)' }} />
                         </td>
@@ -360,7 +371,7 @@ export default function Payroll() {
                   ))
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-sm" style={{ color: 'var(--color-muted)' }}>
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm" style={{ color: 'var(--color-muted)' }}>
                       Không có bản ghi lương.
                     </td>
                   </tr>
@@ -380,11 +391,20 @@ export default function Payroll() {
                       <td className="px-4 py-3" style={{ color: 'var(--color-success)' }}>
                         {formatCurrency(row.Bonus)}
                       </td>
+                      <td className="px-4 py-3" style={{ color: 'var(--color-success)' }}>
+                        {formatCurrency(row.OvertimePay)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <SeverityBadge value={row.PayrollAdjustments} />
+                      </td>
                       <td className="px-4 py-3">
                         <SeverityBadge value={row.Deductions} />
                       </td>
                       <td className="px-4 py-3">
                         <SeverityBadge value={row.AttendanceDeduction} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <SeverityBadge value={Number(row.BenefitDeductions ?? 0) + Number(row.TaxDeduction ?? 0)} />
                       </td>
                       <td className="px-4 py-3 font-bold" style={{ color: 'var(--color-primary-dark)' }}>
                         {formatCurrency(row.NetSalary)}
@@ -603,8 +623,12 @@ export default function Payroll() {
               <DetailItem label="Tháng lương" value={formatDateLabel(selectedPayroll.SalaryMonth)} />
               <DetailItem label="Lương cơ bản" value={formatCurrency(selectedPayroll.BaseSalary)} />
               <DetailItem label="Thưởng" value={formatCurrency(selectedPayroll.Bonus)} />
+              <DetailItem label="Tăng ca" value={formatCurrency(selectedPayroll.OvertimePay)} />
+              <DetailItem label="Điều chỉnh lương" value={formatCurrency(selectedPayroll.PayrollAdjustments)} />
               <DetailItem label="Khấu trừ" value={formatCurrency(selectedPayroll.Deductions)} />
               <DetailItem label="Khấu trừ vắng mặt" value={formatCurrency(selectedPayroll.AttendanceDeduction)} />
+              <DetailItem label="Khấu trừ phúc lợi" value={formatCurrency(selectedPayroll.BenefitDeductions)} />
+              <DetailItem label="Thuế/chính sách" value={formatCurrency(selectedPayroll.TaxDeduction)} />
               <DetailItem label="Ngày công" value={selectedPayroll.WorkDays ?? '-'} />
               <DetailItem label="Ngày vắng" value={selectedPayroll.AbsentDays ?? '-'} />
               <DetailItem label="Ngày nghỉ phép" value={selectedPayroll.LeaveDays ?? '-'} />

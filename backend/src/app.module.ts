@@ -9,6 +9,8 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { SrsFeaturesModule } from './modules/srs-features/srs-features.module';
 
 @Module({
   imports: [
@@ -38,10 +40,12 @@ import { AuthModule } from './modules/auth/auth.module';
 
     // Feature modules
     AuthModule,
+    AuditModule,
     EmployeesModule,
     AttendanceModule,
     PayrollModule,
     SyncModule,
+    SrsFeaturesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

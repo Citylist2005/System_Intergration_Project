@@ -28,6 +28,9 @@ export class Attendance {
   @Column({ type: 'int', default: 0 })
   LeaveDays: number;
 
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  OvertimeHours: number;
+
   @Column({ type: 'date' })
   AttendanceMonth: Date;
 
@@ -43,7 +46,6 @@ export class Attendance {
   CheckIn?: string;
   CheckOut?: string;
   WorkHours?: number;
-  OvertimeHours?: number;
   Status?: string;
   Note?: string;
 }

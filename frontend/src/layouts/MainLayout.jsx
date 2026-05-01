@@ -22,7 +22,20 @@ export default function MainLayout() {
   const storedUser = (() => {
     try { return JSON.parse(localStorage.getItem('hr_user') || '{}'); } catch { return {}; }
   })();
-  const displayName = storedUser?.username || storedUser?.name || 'Admin';
+  const displayName = storedUser?.username || storedUser?.name || 'Quản trị viên';
+  const academicTitleMap = {
+    '/': 'Tổng quan',
+    '/employees': 'Nhân viên',
+    '/payroll': 'Tiền lương',
+    '/reports': 'Báo cáo',
+    '/employee-lifecycle': 'Vòng đời nhân viên',
+    '/onboarding-offboarding': 'Tiếp nhận / Nghỉ việc',
+    '/work-shifts': 'Ca làm việc',
+    '/overtime-leave': 'Nghỉ phép & Tăng ca',
+    '/kpi-okr': 'KPI / OKR',
+    '/performance-evaluation': 'Đánh giá hiệu suất',
+    '/admin': 'Trung tâm quản trị',
+  };
 
   function handleLogout() {
     localStorage.removeItem('hr_token');
@@ -30,7 +43,7 @@ export default function MainLayout() {
     navigate('/login');
   }
 
-  const pageTitle = pageTitleMap[location.pathname] || 'Quản lý lương nhân sự';
+  const pageTitle = academicTitleMap[location.pathname] || pageTitleMap[location.pathname] || 'Bảng điều hành nhân sự và tiền lương';
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)', color: 'var(--color-text)' }}>

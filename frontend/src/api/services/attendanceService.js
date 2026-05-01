@@ -10,3 +10,12 @@ export async function getAttendanceSummary(params = {}) {
   return response.data;
 }
 
+export async function upsertManualAttendance(payload) {
+  const response = await apiClient.post('/attendance/manual', payload);
+  return response.data;
+}
+
+export async function updateAttendance(attendanceId, payload) {
+  const response = await apiClient.put(`/attendance/${attendanceId}`, payload);
+  return response.data;
+}

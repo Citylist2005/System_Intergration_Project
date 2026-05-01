@@ -8,7 +8,9 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -34,20 +36,27 @@ export class EmployeesController {
   }
 
   @Post()
-  async create(@Body() createEmployeeDto: CreateEmployeeDto) {
-    return this.employeesService.create(createEmployeeDto);
+  async create(
+    @Body() createEmployeeDto: CreateEmployeeDto,
+    @Req() request: Request & { user?: { sub?: number; username?: string } },
+  ) {
+    return this.employeesService.create(createEmployeeDto, request.user, request.ip);
   }
 
   @Put(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateEmployeeDto: UpdateEmployeeDto,
+    @Req() request: Request & { user?: { sub?: number; username?: string } },
   ) {
-    return this.employeesService.update(id, updateEmployeeDto);
+    return this.employeesService.update(id, updateEmployeeDto, request.user, request.ip);
   }
 
   @Delete(':id')
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    return this.employeesService.softDelete(id);
+  async remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: Request & { user?: { sub?: number; username?: string } },
+  ) {
+    return this.employeesService.softDelete(id, request.user, request.ip);
   }
 }
