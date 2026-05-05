@@ -25,6 +25,8 @@ export const getHumanDbConfig = (
   database: configService.get<string>('HUMAN_DB_NAME', 'HUMAN_2025'),
   entities: [__dirname + '/../database/human/entities/*.entity{.ts,.js}'],
   synchronize: false,
+  requestTimeout: getNumber(configService, 'HUMAN_DB_REQUEST_TIMEOUT_MS', 5000),
+  connectionTimeout: getNumber(configService, 'HUMAN_DB_CONNECTION_TIMEOUT_MS', 5000),
   options: {
     encrypt: false,
     trustServerCertificate: true,
@@ -62,4 +64,5 @@ export const getPayrollDbConfig = (
   database: configService.get<string>('PAYROLL_DB_NAME', 'payroll_2026'),
   entities: [__dirname + '/../database/payroll/entities/*.entity{.ts,.js}'],
   synchronize: false,
+  connectTimeout: getNumber(configService, 'PAYROLL_DB_CONNECTION_TIMEOUT_MS', 5000),
 });

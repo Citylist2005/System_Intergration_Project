@@ -88,9 +88,10 @@ AUTH_TOKEN_SECRET=change-this-secret-before-sharing
 Tài khoản dev mặc định:
 
 ```text
-admin@docusync.local
-change-me
+admin@docusync.local / change-me  (role: ADMIN)
 ```
+
+> Sau khi chạy `npm run seed:rbac`, có thêm các tài khoản demo cho từng vai trò — xem **Mục 15**.
 
 ## 4. Tạo Schema MySQL
 
@@ -107,6 +108,19 @@ File này tạo các bảng:
 - `employees_payroll`
 - `attendance`
 - `salaries`
+
+Sau đó chạy seeder RBAC để tạo bảng phân quyền và tài khoản demo:
+
+```powershell
+cd D:\CMU-CS-445\Source\backend
+npm run seed:rbac
+```
+
+Seeder sẽ:
+
+- Tạo bảng `roles`, `permissions`, `user_roles`, `role_permissions` (nếu chưa có)
+- Seed 4 vai trò và 16 quyền mặc định
+- Tạo 4 tài khoản demo (xem Mục 15)
 
 Các khóa quan trọng:
 
@@ -169,12 +183,14 @@ Mở:
 http://127.0.0.1:5173
 ```
 
-Đăng nhập:
+Tài khoản demo theo từng vai trò (sau khi chạy `npm run seed:rbac`):
 
-```text
-Username: admin@docusync.local
-Password: change-me
-```
+| Email | Mật khẩu | Vai trò | Quyền |
+|---|---|---|---|
+| `admin@docusync.local` | `change-me` | ADMIN | Toàn quyền |
+| `hr@company.local` | `change-me` | HR_MANAGER | Nhân viên, Chấm công, Báo cáo |
+| `payroll@company.local` | `change-me` | PAYROLL_MANAGER | Lương, Báo cáo |
+| `employee@company.local` | `change-me` | EMPLOYEE | Xem hồ sơ, Chấm công, Lương (của mình) |
 
 Nếu bị lỗi token sau khi đổi code, xóa `hr_token` và `hr_user` trong Local Storage rồi đăng nhập lại.
 
@@ -185,14 +201,18 @@ Source/
   backend/
     src/
       modules/
-        auth/        Đăng nhập, token, guard bảo vệ API
+        auth/        Đăng nhập, JWT, JwtAuthGuard, RolesGuard, PermissionsGuard
         employees/   Quản lý nhân viên
         attendance/  Chấm công
         payroll/     Tính lương, nhập lương, sửa lương
+        users/       Quản lý tài khoản và phân quyền
+        audit/       Nhật ký hệ thống
         sync/        Đồng bộ dữ liệu
       database/
         human/       Entity SQL Server HUMAN_2025
-        payroll/     Entity MySQL payroll_2026
+        payroll/
+          entities/  Entity MySQL payroll_2026 (users, roles, permissions, ...)
+          seeders/   rbac.seeder.ts — tạo bảng + seed dữ liệu
       config/        Cấu hình database
     sql/
       payroll_2026_schema.sql
@@ -200,8 +220,11 @@ Source/
     src/
       pages/         Các màn hình chính
       components/    Component UI dùng chung
+      hooks/         useAuth — đọc roles/permissions từ localStorage
       api/           Axios client và service gọi API
       utils/         Format, export Excel/PDF, analytics
+  docs/
+    RBAC_DATABASE_DESIGN.md   Thiết kế RBAC, bảng, vai trò, quyền
   scripts/
     start-dev.ps1    Script chạy backend + frontend và mở trình duyệt
 ```
@@ -456,3 +479,38 @@ node scripts\seed-srs-demo-data.js
 Du lieu seed chi dung de demo va test UI, khong thay the du lieu that trong SQL Server/MySQL.
 
 Chuc nang sao luu database se tao ban ghi lich su trong he thong. De backup MySQL that, may can co `mysqldump` trong PATH va cau hinh dung bien database trong `backend\.env`.
+
+## 15. Tài Khoản Demo RBAC
+
+Sau khi chạy `npm run seed:rbac`, hệ thống có 4 tài khoản demo để kiểm tra phân quyền:
+
+```powershell
+cd D:\CMU-CS-445\Source\backend
+npm run seed:rbac
+```
+
+### Tài Khoản Demo
+
+| # | Email | Mật khẩu | Vai trò | Quyền |
+|---|---|---|---|---|
+| 1 | `admin@docusync.local` | `change-me` | ADMIN | Toàn bộ 16 quyền |
+| 2 | `hr@company.local` | `change-me` | HR_MANAGER | employee.*, attendance.*, reports.read, dashboard.read |
+| 3 | `payroll@company.local` | `change-me` | PAYROLL_MANAGER | payroll.*, reports.read, dashboard.read |
+| 4 | `employee@company.local` | `change-me` | EMPLOYEE | employee.read, attendance.read, payroll.read, dashboard.read |
+
+### Kiểm Tra Phân Quyền
+
+**ADMIN** — thấy tất cả sidebar, tất cả nút Thêm/Sửa/Xoá, truy cập `/audit-logs`.
+
+**HR_MANAGER** — thấy Nhân viên, Chấm công, Báo cáo. Có nút Thêm/Sửa/Xoá nhân viên. Không thấy Lương, Quản trị.
+
+**PAYROLL_MANAGER** — thấy Lương, Báo cáo. Có nút Tạo bảng lương, Nhập lương, Sửa lương. Không thấy Nhân viên, Quản trị.
+
+**EMPLOYEE** — chỉ thấy Bảng điều khiển. Không có nút Thêm/Sửa/Xoá. API `/employees` trả về dữ liệu (lọc theo service-level sau).
+
+### Ghi Chú
+
+- Seeder idempotent: chạy lại không tạo trùng user/role/permission.
+- Mật khẩu hash dùng **scrypt** (giống `password.service.ts` trong backend).
+- Để đổi mật khẩu demo, sửa trực tiếp trong DB hoặc tạo API `PUT /users/:id/password`.
+- Tham khảo thiết kế đầy đủ tại [`docs/RBAC_DATABASE_DESIGN.md`](docs/RBAC_DATABASE_DESIGN.md).

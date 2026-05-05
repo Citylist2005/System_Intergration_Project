@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BenefitsInsurance } from '../../database/payroll/entities/benefits-insurance.entity';
 import { PayrollDepartment } from '../../database/payroll/entities/departments-payroll.entity';
 import { EmployeeLifecycle } from '../../database/payroll/entities/employee-lifecycle.entity';
+import { EmployeesPayroll } from '../../database/payroll/entities/employees-payroll.entity';
 import { KpiOkr } from '../../database/payroll/entities/kpi-okr.entity';
 import { LeaveRequest } from '../../database/payroll/entities/leave-request.entity';
 import { OnboardingOffboarding } from '../../database/payroll/entities/onboarding-offboarding.entity';
@@ -15,6 +16,7 @@ import { ShiftAssignment } from '../../database/payroll/entities/shift-assignmen
 import { SystemBackup } from '../../database/payroll/entities/system-backup.entity';
 import { User } from '../../database/payroll/entities/user.entity';
 import { WorkShift } from '../../database/payroll/entities/work-shift.entity';
+import { Attendance } from '../../database/payroll/entities/attendance.entity';
 import { AuditModule } from '../audit/audit.module';
 import {
   BenefitsInsuranceController,
@@ -30,26 +32,26 @@ import {
   SalaryPoliciesController,
   ShiftAssignmentsController,
   SystemBackupController,
-  UsersController,
   WorkShiftsController,
 } from './srs.controllers';
 import {
-  BenefitsInsuranceService,
   DepartmentsService,
   EmployeeLifecycleService,
   KpiOkrService,
   LeaveRequestsService,
-  OnboardingOffboardingService,
-  OvertimeRequestsService,
   PayrollAdjustmentsService,
   PerformanceEvaluationService,
   PositionsService,
-  SalaryPoliciesService,
-  ShiftAssignmentsService,
   SystemBackupService,
-  UsersService,
   WorkShiftsService,
 } from './srs.services';
+import {
+  BenefitsInsuranceService,
+  OnboardingOffboardingService,
+  OvertimeRequestsService,
+  SalaryPoliciesService,
+  ShiftAssignmentsService,
+} from './business-rules.services';
 
 @Module({
   imports: [
@@ -59,6 +61,7 @@ import {
         BenefitsInsurance,
         PayrollDepartment,
         EmployeeLifecycle,
+        EmployeesPayroll,
         KpiOkr,
         LeaveRequest,
         OnboardingOffboarding,
@@ -71,6 +74,7 @@ import {
         SystemBackup,
         User,
         WorkShift,
+        Attendance,
       ],
       'payrollConnection',
     ),
@@ -89,25 +93,26 @@ import {
     SalaryPoliciesController,
     ShiftAssignmentsController,
     SystemBackupController,
-    UsersController,
     WorkShiftsController,
   ],
   providers: [
-    BenefitsInsuranceService,
+    // Simple CRUD services (no business rules needed)
     DepartmentsService,
     EmployeeLifecycleService,
     KpiOkrService,
     LeaveRequestsService,
-    OnboardingOffboardingService,
-    OvertimeRequestsService,
     PayrollAdjustmentsService,
     PerformanceEvaluationService,
     PositionsService,
+    SystemBackupService,
+    WorkShiftsService,
+    // Business rule overrides
+    BenefitsInsuranceService,
+    OnboardingOffboardingService,
+    OvertimeRequestsService,
     SalaryPoliciesService,
     ShiftAssignmentsService,
-    SystemBackupService,
-    UsersService,
-    WorkShiftsService,
   ],
+  exports: [SalaryPoliciesService, BenefitsInsuranceService],
 })
 export class SrsFeaturesModule {}

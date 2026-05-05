@@ -7,15 +7,27 @@ import { SalaryPolicy } from '../../database/payroll/entities/salary-policy.enti
 import { BenefitsInsurance } from '../../database/payroll/entities/benefits-insurance.entity';
 import { PayrollAdjustment } from '../../database/payroll/entities/payroll-adjustment.entity';
 import { OvertimeRequest } from '../../database/payroll/entities/overtime-request.entity';
+import { KpiOkr } from '../../database/payroll/entities/kpi-okr.entity';
 import { PayrollController } from './payroll.controller';
 import { PayrollService } from './payroll.service';
+import { TaxModule } from '../tax/tax.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature(
-      [Salary, EmployeesPayroll, Attendance, SalaryPolicy, BenefitsInsurance, PayrollAdjustment, OvertimeRequest],
+      [
+        Salary,
+        EmployeesPayroll,
+        Attendance,
+        SalaryPolicy,
+        BenefitsInsurance,
+        PayrollAdjustment,
+        OvertimeRequest,
+        KpiOkr,
+      ],
       'payrollConnection',
     ),
+    TaxModule,
   ],
   controllers: [PayrollController],
   providers: [PayrollService],

@@ -8,8 +8,11 @@ export class HumanAttendance {
   @Column()
   EmployeeID: number;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', nullable: true })
   AttendanceDate: Date;
+
+  @Column({ type: 'date', nullable: true })
+  AttendanceMonth: Date;
 
   @Column({ type: 'time', nullable: true })
   CheckIn: string;
@@ -19,6 +22,15 @@ export class HumanAttendance {
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   WorkHours: number;
+
+  @Column({ type: 'int', default: 0 })
+  WorkDays: number;
+
+  @Column({ type: 'int', default: 0 })
+  AbsentDays: number;
+
+  @Column({ type: 'int', default: 0 })
+  LeaveDays: number;
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   OvertimeHours: number;

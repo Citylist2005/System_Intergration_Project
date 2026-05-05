@@ -13,6 +13,7 @@ import { EmployeesPayroll } from '../../database/payroll/entities/employees-payr
 import { PayrollDepartment } from '../../database/payroll/entities/departments-payroll.entity';
 import { PayrollPosition } from '../../database/payroll/entities/positions-payroll.entity';
 import { Attendance } from '../../database/payroll/entities/attendance.entity';
+import { SyncStatus } from '../../database/payroll/entities/sync-status.entity';
 import { normalizeEmployeeStatus } from '../../common/employee-status';
 
 interface SyncResult {
@@ -63,6 +64,9 @@ export class SyncService {
 
     @InjectRepository(Attendance, 'payrollConnection')
     private readonly payrollAttendanceRepo: Repository<Attendance>,
+
+    @InjectRepository(SyncStatus, 'payrollConnection')
+    private readonly syncStatusRepo: Repository<SyncStatus>,
   ) {}
 
   async testHumanConnection() {
@@ -440,13 +444,15 @@ export class SyncService {
         ? 'partial_failed'
         : 'success';
 
-    this.lastSyncResult = {
+    const statusRecord = {
       entity: 'ALL',
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       status: status.toUpperCase(),
       results,
     };
+    this.lastSyncResult = statusRecord;
+    await this.persistSyncStatus('ALL', status.toUpperCase(), startedAt, completedAt, statusRecord);
 
     return {
       status,
@@ -464,9 +470,14 @@ export class SyncService {
   }
 
   async getStatus(): Promise<Record<string, unknown>> {
+    const latest = await this.syncStatusRepo.findOne({
+      where: {},
+      order: { StatusID: 'DESC' },
+    });
+
     return {
       status: 'success',
-      data: this.lastSyncResult || { message: 'Chưa có lần đồng bộ nào được thực hiện' },
+      data: latest?.Details || this.lastSyncResult || { message: 'Chưa có lần đồng bộ nào được thực hiện' },
       connections: this.databaseConnectionsService.getConnectionStatuses(),
     };
   }
@@ -658,22 +669,24 @@ export class SyncService {
     );
   }
 
-  private buildSyncResponse(
+  private async buildSyncResponse(
     message: string,
     startedAt: Date,
     result: SyncResult,
     extraData: Record<string, unknown> = {},
-  ): SyncResponse {
+  ): Promise<SyncResponse> {
     const completedAt = new Date();
     const status: 'success' | 'partial_failed' =
       result.failed > 0 ? 'partial_failed' : 'success';
 
-    this.lastSyncResult = {
+    const statusRecord = {
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       status: status.toUpperCase(),
       ...result,
     };
+    this.lastSyncResult = statusRecord;
+    await this.persistSyncStatus(result.entity, status.toUpperCase(), startedAt, completedAt, statusRecord);
 
     return {
       status,
@@ -695,25 +708,45 @@ export class SyncService {
     };
   }
 
-  private buildTopLevelFailure(
+  private async buildTopLevelFailure(
     message: string,
     startedAt: Date,
     result: SyncResult,
-  ): SyncResponse {
+  ): Promise<SyncResponse> {
     const completedAt = new Date();
 
-    this.lastSyncResult = {
+    const statusRecord = {
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       status: 'FAILED',
       ...result,
       message,
     };
+    this.lastSyncResult = statusRecord;
+    await this.persistSyncStatus(result.entity, 'FAILED', startedAt, completedAt, statusRecord);
 
     return {
       status: 'failed',
       message,
       errorCode: 500,
     };
+  }
+
+  private async persistSyncStatus(
+    syncType: string,
+    status: string,
+    startedAt: Date,
+    completedAt: Date,
+    details: Record<string, unknown>,
+  ) {
+    await this.syncStatusRepo.save(
+      this.syncStatusRepo.create({
+        SyncType: syncType,
+        Status: status,
+        StartedAt: startedAt,
+        CompletedAt: completedAt,
+        Details: details,
+      }),
+    );
   }
 }

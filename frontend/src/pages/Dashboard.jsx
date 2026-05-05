@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   BriefcaseBusiness,
@@ -16,10 +17,10 @@ import { getPayroll } from '../api/services/payrollService';
 import { getSyncStatus } from '../api/services/syncService';
 import { listRecords } from '../api/services/srsService';
 import Button from '../components/ui/Button';
-import InfoCard from '../components/ui/InfoCard';
+import StatCard from '../components/ui/StatCard';
 import InlineMessage from '../components/ui/InlineMessage';
 import PageHeader from '../components/ui/PageHeader';
-import StatCard from '../components/ui/StatCard';
+import useAuth from '../hooks/useAuth';
 import {
   formatCompactNumber,
   formatCurrency,
@@ -31,11 +32,12 @@ const refreshIntervalMs = 30000;
 
 function getConnectionBadgeClass(connected) {
   return connected
-    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-    : 'border border-rose-200 bg-rose-50 text-rose-700';
+    ? 'bg-green-100 text-green-700'
+    : 'bg-red-100 text-red-700';
 }
 
 export default function Dashboard() {
+  const { hasPermission, hasRole } = useAuth();
   const [state, setState] = useState({
     employees: [],
     employeesMeta: null,
@@ -59,6 +61,19 @@ export default function Dashboard() {
     }
 
     try {
+      const canReadEmployees = hasPermission('employee.read');
+      const canReadAttendance = hasPermission('attendance.read');
+      const canReadPayroll = hasPermission('payroll.read');
+      const canReadHrRecords = hasPermission('lifecycle.read') || hasRole('ADMIN', 'HR_MANAGER');
+      const canReadLeave =
+        hasPermission('leave.read') || hasRole('ADMIN', 'HR_MANAGER', 'EMPLOYEE');
+      const canReadOvertime =
+        hasPermission('leave.read') || hasRole('ADMIN', 'HR_MANAGER', 'PAYROLL_MANAGER', 'EMPLOYEE');
+      const canReadBenefits = hasPermission('benefits.read') || hasRole('ADMIN', 'PAYROLL_MANAGER');
+      const canReadPayrollAdjustments = hasRole('ADMIN', 'PAYROLL_MANAGER');
+      const canReadKpi = hasPermission('kpi.read') || hasRole('ADMIN', 'HR_MANAGER', 'EMPLOYEE');
+      const canReadBackups = hasRole('ADMIN');
+
       const [
         employeesResponse,
         attendanceResponse,
@@ -71,20 +86,19 @@ export default function Dashboard() {
         kpiResponse,
         adjustmentsResponse,
         backupResponse,
-      ] =
-        await Promise.all([
-          getEmployees(),
-          getAttendance(),
-          getPayroll(),
-          getSyncStatus(),
-          listRecords('/employee-lifecycle', { limit: 100 }),
-          listRecords('/leave-requests', { limit: 100 }),
-          listRecords('/overtime-requests', { limit: 100 }),
-          listRecords('/benefits-insurance', { limit: 100 }),
-          listRecords('/kpi-okr', { limit: 100 }),
-          listRecords('/payroll-adjustments', { limit: 100 }),
-          listRecords('/system-backup', { limit: 10 }),
-        ]);
+      ] = await Promise.all([
+        canReadEmployees ? getEmployees({ limit: 1000 }) : Promise.resolve({ data: [], meta: { total: 0 } }),
+        canReadAttendance ? getAttendance({ limit: 1000 }) : Promise.resolve({ data: [], meta: { total: 0 } }),
+        canReadPayroll ? getPayroll({ limit: 1000 }) : Promise.resolve({ data: [], meta: { total: 0 } }),
+        getSyncStatus(),
+        canReadHrRecords ? listRecords('/employee-lifecycle', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadLeave ? listRecords('/leave-requests', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadOvertime ? listRecords('/overtime-requests', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadBenefits ? listRecords('/benefits-insurance', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadKpi ? listRecords('/kpi-okr', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadPayrollAdjustments ? listRecords('/payroll-adjustments', { limit: 100 }) : Promise.resolve({ data: [] }),
+        canReadBackups ? listRecords('/system-backup', { limit: 10 }) : Promise.resolve({ data: [] }),
+      ]);
 
       setState({
         employees: employeesResponse.data ?? [],
@@ -153,13 +167,93 @@ export default function Dashboard() {
   const apiHealthy = Object.values(connections).every(
     (connection) => connection?.connected,
   );
+  const isPayrollManager = hasRole('PAYROLL_MANAGER') && !hasRole('ADMIN');
+  const isHrManager = hasRole('HR_MANAGER') && !hasRole('ADMIN');
+  const isEmployeeOnly = hasRole('EMPLOYEE') && !hasRole('ADMIN', 'HR_MANAGER', 'PAYROLL_MANAGER');
+
+  const canShowEmployeeMetrics =
+    hasPermission('employee.read') && !isPayrollManager && !isEmployeeOnly;
+  const canShowAttendanceMetrics = hasPermission('attendance.read');
+  const canShowPayrollMetrics = hasPermission('payroll.read') && !isHrManager;
+  const canShowBenefitsMetrics =
+    (hasPermission('benefits.read') || hasRole('ADMIN', 'PAYROLL_MANAGER')) &&
+    !isHrManager &&
+    !isEmployeeOnly;
+  const canShowLeaveMetrics =
+    hasPermission('leave.read') || hasRole('ADMIN', 'HR_MANAGER', 'PAYROLL_MANAGER', 'EMPLOYEE');
+  const canShowLifecycleMetrics =
+    (hasPermission('lifecycle.read') || hasRole('ADMIN', 'HR_MANAGER')) &&
+    !isPayrollManager &&
+    !isEmployeeOnly;
+  const canShowKpiMetrics =
+    (hasPermission('kpi.read') || hasRole('ADMIN', 'HR_MANAGER', 'EMPLOYEE')) &&
+    !isPayrollManager;
+
+  const dashboardCards = [
+    canShowEmployeeMetrics && {
+      title: 'Tổng số nhân viên',
+      value: state.loading ? '...' : formatCompactNumber(totalEmployees),
+      subtitle: 'Số nhân sự hiện có trong hệ thống',
+      icon: BriefcaseBusiness,
+      accent: 'bg-blue-100 text-blue-600',
+    },
+    canShowAttendanceMetrics && {
+      title: isEmployeeOnly ? 'Chấm công của tôi' : 'Tổng bản ghi chấm công',
+      value: state.loading ? '...' : formatCompactNumber(totalAttendance),
+      subtitle: 'Số bản ghi chấm công',
+      icon: CalendarCheck2,
+      accent: 'bg-indigo-100 text-indigo-600',
+    },
+    canShowPayrollMetrics && {
+      title: isEmployeeOnly ? 'Lương của tôi' : 'Tổng lương',
+      value: state.loading ? '...' : formatCurrency(totalSalary),
+      subtitle: 'Tổng thực lĩnh',
+      icon: CircleDollarSign,
+      accent: 'bg-blue-100 text-blue-600',
+    },
+    canShowEmployeeMetrics && {
+      title: 'Nhân viên đang làm việc',
+      value: state.loading ? '...' : formatCompactNumber(activeEmployees),
+      subtitle: 'Nhân sự ở trạng thái hoạt động',
+      icon: UserCheck,
+      accent: 'bg-blue-50 text-blue-500',
+    },
+    canShowLifecycleMetrics && {
+      title: 'Hồ sơ vòng đời',
+      value: state.loading ? '...' : formatCompactNumber(lifecycleActive),
+      subtitle: 'Bản ghi vòng đời hoạt động',
+      icon: Activity,
+      accent: 'bg-indigo-50 text-indigo-500',
+    },
+    canShowLeaveMetrics && {
+      title: isEmployeeOnly ? 'Nghỉ phép / tăng ca của tôi' : isPayrollManager ? 'Tăng ca' : 'Nghỉ phép / tăng ca',
+      value: state.loading ? '...' : formatCompactNumber(leaveOvertime),
+      subtitle: 'Tổng đơn yêu cầu',
+      icon: CalendarCheck2,
+      accent: 'bg-blue-100 text-blue-600',
+    },
+    canShowBenefitsMetrics && {
+      title: 'Chi phí phúc lợi',
+      value: state.loading ? '...' : formatCurrency(benefitsCost),
+      subtitle: 'Tổng chi phí hằng tháng',
+      icon: SlidersHorizontal,
+      accent: 'bg-indigo-100 text-indigo-600',
+    },
+    canShowKpiMetrics && {
+      title: isEmployeeOnly ? 'KPI của tôi' : 'KPI trung bình',
+      value: state.loading ? '...' : averageKpi.toFixed(1),
+      subtitle: `Điều chỉnh: ${state.srs.adjustments?.length ?? 0}. Sao lưu: ${latestBackup}`,
+      icon: Star,
+      accent: 'bg-blue-50 text-blue-500',
+    },
+  ].filter(Boolean);
 
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Tổng quan"
+        eyebrow="TỔNG QUAN"
         title="Bảng điều hành nhân sự và tiền lương"
-        description="Theo dõi dữ liệu vận hành theo thời gian thực với cơ chế tự làm mới mỗi 30 giây và tình trạng kết nối API."
+        description="Quản lý dữ liệu nhân sự và tiền lương. Hệ thống được làm mới tự động và liên tục giám sát trạng thái kết nối với máy chủ."
         action={
           <Button
             variant="secondary"
@@ -174,106 +268,49 @@ export default function Dashboard() {
 
       {state.error ? <InlineMessage tone="danger">{state.error}</InlineMessage> : null}
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Tổng số nhân viên"
-          value={state.loading ? '...' : formatCompactNumber(totalEmployees)}
-          subtitle="Số nhân sự hiện có trong hệ thống lương"
-          icon={BriefcaseBusiness}
-          accent="bg-[linear-gradient(135deg,var(--color-primary),var(--color-primary-dark))] text-white"
-        />
-        <StatCard
-          title="Tổng bản ghi chấm công"
-          value={state.loading ? '...' : formatCompactNumber(totalAttendance)}
-          subtitle="Số bản ghi chấm công đang tải"
-          icon={CalendarCheck2}
-          accent="bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)]"
-        />
-        <StatCard
-          title="Tổng lương"
-          value={state.loading ? '...' : formatCurrency(totalSalary)}
-          subtitle="Tổng thực lĩnh của dữ liệu hiện tại"
-          icon={CircleDollarSign}
-          accent="bg-emerald-50 text-emerald-700"
-        />
-        <StatCard
-          title="Nhân viên đang làm việc"
-          value={state.loading ? '...' : formatCompactNumber(activeEmployees)}
-          subtitle="Nhân viên đang ở trạng thái hoạt động"
-          icon={UserCheck}
-          accent="bg-sky-50 text-sky-700"
-        />
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Hồ sơ vòng đời"
-          value={state.loading ? '...' : formatCompactNumber(lifecycleActive)}
-          subtitle="Số bản ghi vòng đời chưa ở trạng thái nghỉ việc"
-          icon={UserCheck}
-          accent="bg-cyan-50 text-cyan-700"
-        />
-        <StatCard
-          title="Nghỉ phép / tăng ca"
-          value={state.loading ? '...' : formatCompactNumber(leaveOvertime)}
-          subtitle="Tổng số đơn nghỉ phép và tăng ca"
-          icon={CalendarCheck2}
-          accent="bg-amber-50 text-amber-700"
-        />
-        <StatCard
-          title="Chi phí phúc lợi"
-          value={state.loading ? '...' : formatCurrency(benefitsCost)}
-          subtitle="Tổng chi phí phúc lợi và bảo hiểm hằng tháng"
-          icon={SlidersHorizontal}
-          accent="bg-emerald-50 text-emerald-700"
-        />
-        <StatCard
-          title="KPI trung bình"
-          value={state.loading ? '...' : averageKpi.toFixed(1)}
-          subtitle={`Điều chỉnh lương: ${state.srs.adjustments?.length ?? 0}. Sao lưu: ${latestBackup}`}
-          icon={Star}
-          accent="bg-violet-50 text-violet-700"
-        />
+      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        {dashboardCards.map((card) => (
+          <StatCard key={card.title} {...card} />
+        ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-        <InfoCard
-          title="Bảng tin thời gian thực"
-          description="Trang này tự làm mới và liên tục theo dõi khả năng kết nối backend."
-        >
+        <div className="rounded-[20px] bg-white p-6 shadow-sm border border-slate-200">
+          <div className="mb-6">
+            <h3 className="text-lg font-bold text-slate-800">Bảng tin thời gian thực</h3>
+            <p className="text-sm text-slate-500">Chu kỳ làm mới dữ liệu và thời gian cập nhật gần nhất.</p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4">
-              <p className="text-sm text-[var(--color-muted)]">Chu kỳ làm mới</p>
-              <p className="mt-2 text-xl font-semibold text-[var(--color-text)]">
-                30 giây
-              </p>
+            <div className="rounded-2xl bg-slate-50 p-5 border border-slate-100">
+              <p className="text-sm font-medium text-slate-500 mb-1">Chu kỳ làm mới</p>
+              <p className="text-2xl font-bold text-slate-800">30 giây</p>
             </div>
-            <div className="rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4">
-              <p className="text-sm text-[var(--color-muted)]">Cập nhật lần cuối</p>
-              <p className="mt-2 text-xl font-semibold text-[var(--color-text)]">
-                {formatDateTime(state.lastUpdated)}
+            <div className="rounded-2xl bg-slate-50 p-5 border border-slate-100">
+              <p className="text-sm font-medium text-slate-500 mb-1">Cập nhật lần cuối</p>
+              <p className="text-2xl font-bold text-slate-800">
+                {state.lastUpdated ? formatDateTime(state.lastUpdated) : '...'}
               </p>
             </div>
           </div>
-        </InfoCard>
+        </div>
 
-        <InfoCard
-          title="Trạng thái API"
-          description="Tình trạng kết nối được lấy từ endpoint sync status của backend."
-        >
+        <div className="rounded-[20px] bg-white p-6 shadow-sm border border-slate-200">
+          <div className="mb-6">
+            <h3 className="text-lg font-bold text-slate-800">Trạng thái API</h3>
+            <p className="text-sm text-slate-500">Khả năng kết nối đến máy chủ và các cơ sở dữ liệu.</p>
+          </div>
           <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-4 py-4">
-              <span className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-                <Activity className="h-4 w-4 text-[var(--color-primary)]" />
-                Trạng thái tổng thể
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-5 py-4">
+              <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                <Activity className="h-4 w-4 text-blue-500" />
+                Tổng thể
               </span>
               <span
-                className={[
-                  'rounded-full px-3 py-1 text-xs font-semibold',
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
                   apiHealthy
-                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border border-rose-200 bg-rose-50 text-rose-700',
-                ].join(' ')}
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-700'
+                }`}
               >
                 {apiHealthy ? 'Ổn định' : 'Suy giảm'}
               </span>
@@ -282,19 +319,16 @@ export default function Dashboard() {
               {Object.entries(connections).map(([name, connection]) => (
                 <div
                   key={name}
-                  className="flex items-center justify-between rounded-[24px] border border-[var(--color-border)] bg-white px-4 py-4 shadow-sm"
+                  className="flex items-center justify-between rounded-xl bg-white border border-slate-100 px-4 py-3 shadow-sm"
                 >
-                  <span className="flex items-center gap-3 text-sm font-medium text-[var(--color-text)]">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[var(--color-surface-soft)] text-[var(--color-primary)]">
+                  <span className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                       <ServerCog className="h-4 w-4" />
                     </span>
                     {name}
                   </span>
                   <span
-                    className={[
-                      'rounded-full px-3 py-1 text-xs font-semibold',
-                      getConnectionBadgeClass(connection?.connected),
-                    ].join(' ')}
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getConnectionBadgeClass(connection?.connected)}`}
                   >
                     {connection?.connected ? 'Đã kết nối' : 'Mất kết nối'}
                   </span>
@@ -302,7 +336,7 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-        </InfoCard>
+        </div>
       </div>
     </div>
   );

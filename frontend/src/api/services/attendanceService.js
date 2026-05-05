@@ -19,3 +19,8 @@ export async function updateAttendance(attendanceId, payload) {
   const response = await apiClient.put(`/attendance/${attendanceId}`, payload);
   return response.data;
 }
+
+export async function getDailyAbsences(params = {}) {
+  const response = await apiClient.get('/attendance/daily-absences', { params });
+  return response.data;
+}

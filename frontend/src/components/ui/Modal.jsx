@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import Button from './Button';
 
 export default function Modal({
@@ -12,15 +13,15 @@ export default function Modal({
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-slate-950/35"
+        className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
         aria-label="Đóng cửa sổ"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-300/30">
+      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="space-y-2">
             <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
@@ -32,9 +33,13 @@ export default function Modal({
             Đóng
           </Button>
         </div>
-        <div>{children}</div>
+        <div className="max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+          {children}
+        </div>
         {footer ? <div className="mt-6">{footer}</div> : null}
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

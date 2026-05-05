@@ -32,6 +32,12 @@ export class SystemBackup {
   @Column({ nullable: true })
   CreatedBy: number;
 
+  @Column({ type: 'datetime', nullable: true })
+  RestoredAt: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  RestoredBy: number | null;
+
   @Column({ type: 'text', nullable: true })
   Notes: string;
 }

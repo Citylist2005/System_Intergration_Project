@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { getHumanDbConfig, getPayrollDbConfig } from './config/database.config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,6 +12,9 @@ import { SyncModule } from './modules/sync/sync.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SrsFeaturesModule } from './modules/srs-features/srs-features.module';
+import { UsersModule } from './modules/users/users.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -19,6 +23,8 @@ import { SrsFeaturesModule } from './modules/srs-features/srs-features.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+
+    ScheduleModule.forRoot(),
 
     // SQL Server - HUMAN_2025 (source)
     TypeOrmModule.forRootAsync({
@@ -46,6 +52,9 @@ import { SrsFeaturesModule } from './modules/srs-features/srs-features.module';
     PayrollModule,
     SyncModule,
     SrsFeaturesModule,
+    UsersModule,
+    AlertsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

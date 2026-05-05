@@ -16,6 +16,7 @@ import {
 } from '../utils/analytics';
 import { formatCompactCurrency } from '../utils/formatters';
 import { doExportExcel, doExportPDF } from '../utils/exportUtils';
+import { useAuth } from '../hooks/useAuth';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 const reportTypes = [
@@ -34,6 +35,10 @@ function fmtTr(v) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function Reports() {
+  const { hasPermission } = useAuth();
+  const canReadEmployees = hasPermission('employee.read');
+  const canReadPayroll = hasPermission('payroll.read');
+  const canReadAttendance = hasPermission('attendance.read');
   const [employees, setEmployees] = useState([]);
   const [payroll, setPayroll] = useState([]);
   const [attendanceSummary, setAttendanceSummary] = useState([]);
@@ -47,9 +52,9 @@ export default function Reports() {
     setError('');
     try {
       const [empRes, payRes, attRes] = await Promise.all([
-        getEmployees(),
-        getPayroll({ limit: 200 }),
-        getAttendanceSummary(),
+        canReadEmployees ? getEmployees() : Promise.resolve({ data: [] }),
+        canReadPayroll ? getPayroll({ limit: 200 }) : Promise.resolve({ data: [] }),
+        canReadAttendance ? getAttendanceSummary() : Promise.resolve({ data: [] }),
       ]);
       setEmployees(empRes.data ?? []);
       setPayroll(payRes.data ?? []);
@@ -62,6 +67,19 @@ export default function Reports() {
   }
 
   useEffect(() => { loadReports(); }, []);
+
+  const visibleReportTypes = reportTypes.filter((type) => {
+    if (type.id === 'hr') return canReadEmployees;
+    if (type.id === 'payroll') return canReadPayroll;
+    if (type.id === 'attendance') return canReadAttendance;
+    return canReadEmployees || canReadPayroll || canReadAttendance;
+  });
+
+  useEffect(() => {
+    if (!visibleReportTypes.some((type) => type.id === activeReport)) {
+      setActiveReport(visibleReportTypes[0]?.id ?? 'hr');
+    }
+  }, [activeReport, visibleReportTypes]);
 
   const enrichedPayroll = useMemo(() => enrichPayrollRows(payroll, employees), [payroll, employees]);
 
@@ -119,7 +137,7 @@ export default function Reports() {
           <div className="flex-1">
             <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-muted)' }}>Loại báo cáo</p>
             <div className="flex gap-2 flex-wrap">
-              {reportTypes.map((rt) => (
+              {visibleReportTypes.map((rt) => (
                 <button
                   key={rt.id}
                   type="button"

@@ -1,14 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import ManagementPage from './ManagementPage';
+import useAuth from '../hooks/useAuth';
+import { canAccessEndpoint } from '../utils/accessControl';
 
 export default function TabbedManagementPage({ tabs }) {
-  const [activeId, setActiveId] = useState(tabs[0]?.id);
-  const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
+  const auth = useAuth();
+  const roleKey = auth.roles.join('|');
+  const permissionKey = auth.permissions.join('|');
+  const visibleTabs = useMemo(
+    () => tabs.filter((tab) => canAccessEndpoint(tab.config.endpoint, auth)),
+    [tabs, roleKey, permissionKey],
+  );
+  const [activeId, setActiveId] = useState(visibleTabs[0]?.id);
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeId)) {
+      setActiveId(visibleTabs[0]?.id);
+    }
+  }, [activeId, visibleTabs]);
+
+  if (!visibleTabs.length) {
+    return <Navigate to="/" replace />;
+  }
+
+  const activeTab = visibleTabs.find((tab) => tab.id === activeId) ?? visibleTabs[0];
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-2 rounded-2xl border border-[var(--color-border)] bg-white p-2 shadow-sm">
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const active = tab.id === activeId;
           return (
             <button

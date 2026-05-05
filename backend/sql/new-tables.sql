@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS overtime_requests (
   INDEX idx_or_date (OvertimeDate)
 );
 
+ALTER TABLE attendance
+  ADD COLUMN IF NOT EXISTS OvertimeHours DECIMAL(6,2) DEFAULT 0;
+
 -- UC.09: Salary Policies
 CREATE TABLE IF NOT EXISTS salary_policies (
   PolicyID      INT AUTO_INCREMENT PRIMARY KEY,
@@ -170,6 +173,7 @@ CREATE TABLE IF NOT EXISTS kpi_okr (
   ActualValue   DECIMAL(10,2),
   Weight        DECIMAL(5,2) DEFAULT 100 COMMENT 'percentage weight',
   Score         DECIMAL(5,2) COMMENT 'calculated score 0-100',
+  BonusAmount   DECIMAL(15,2) DEFAULT 0 COMMENT 'approved KPI bonus used by payroll',
   Status        VARCHAR(20) DEFAULT 'Active' COMMENT 'Active,Completed,Cancelled',
   CreatedBy     INT,
   CreatedAt     DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -177,6 +181,9 @@ CREATE TABLE IF NOT EXISTS kpi_okr (
   INDEX idx_kpi_employee (EmployeeID),
   INDEX idx_kpi_period (Period)
 );
+
+ALTER TABLE kpi_okr
+  ADD COLUMN IF NOT EXISTS BonusAmount DECIMAL(15,2) DEFAULT 0 COMMENT 'approved KPI bonus used by payroll';
 
 -- UC.14: Performance Reviews
 CREATE TABLE IF NOT EXISTS performance_reviews (
@@ -230,6 +237,62 @@ CREATE TABLE IF NOT EXISTS system_backups (
   CreatedBy     INT,
   Notes         TEXT
 );
+
+ALTER TABLE system_backups
+  ADD COLUMN IF NOT EXISTS RestoredAt DATETIME NULL,
+  ADD COLUMN IF NOT EXISTS RestoredBy INT NULL;
+
+-- PIT Tax Brackets
+CREATE TABLE IF NOT EXISTS pit_tax_brackets (
+  BracketID     INT AUTO_INCREMENT PRIMARY KEY,
+  EffectiveDate DATE NOT NULL,
+  MinIncome     DECIMAL(15,2) NOT NULL DEFAULT 0,
+  MaxIncome     DECIMAL(15,2) NULL,
+  Rate          DECIMAL(5,2) NOT NULL,
+  Deduction     DECIMAL(15,2) NOT NULL DEFAULT 0,
+  IsActive      TINYINT(1) DEFAULT 1,
+  CreatedAt     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO pit_tax_brackets (EffectiveDate, MinIncome, MaxIncome, Rate, Deduction) VALUES
+('2024-01-01', 0,        5000000,  5, 0),
+('2024-01-01', 5000000,  10000000, 10, 250000),
+('2024-01-01', 10000000, 18000000, 15, 750000),
+('2024-01-01', 18000000, 32000000, 20, 1650000),
+('2024-01-01', 32000000, 52000000, 25, 3250000),
+('2024-01-01', 52000000, 80000000, 30, 5850000),
+('2024-01-01', 80000000, NULL,     35, 9850000);
+
+-- Sync status history
+CREATE TABLE IF NOT EXISTS sync_status (
+  StatusID    INT AUTO_INCREMENT PRIMARY KEY,
+  SyncType    VARCHAR(30) NOT NULL,
+  Status      VARCHAR(20) NOT NULL,
+  StartedAt   DATETIME,
+  CompletedAt DATETIME,
+  Details     JSON,
+  CreatedAt   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- HR alerts
+CREATE TABLE IF NOT EXISTS alerts (
+  AlertID     INT AUTO_INCREMENT PRIMARY KEY,
+  AlertType   VARCHAR(50) NOT NULL,
+  EmployeeID  INT NULL,
+  Title       VARCHAR(200) NOT NULL,
+  Message     TEXT,
+  IsRead      TINYINT(1) DEFAULT 0,
+  IsActive    TINYINT(1) DEFAULT 1,
+  TriggerDate DATE,
+  CreatedAt   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_alerts_employee (EmployeeID),
+  INDEX idx_alerts_type (AlertType),
+  INDEX idx_alerts_unread (IsRead)
+);
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS ResetPasswordToken VARCHAR(100) NULL,
+  ADD COLUMN IF NOT EXISTS ResetPasswordExpiry DATETIME NULL;
 
 -- Audit Logs
 CREATE TABLE IF NOT EXISTS audit_logs (

@@ -3,10 +3,12 @@ import {
   AlertTriangle, Bell, Calendar, ChevronRight, DollarSign,
   Info, Plus, X, Clock, UserCheck, TrendingUp, Filter,
 } from 'lucide-react';
-import { getAttendanceSummary } from '../api/services/attendanceService';
+import { getAttendanceSummary, getDailyAbsences } from '../api/services/attendanceService';
 import { getPayroll } from '../api/services/payrollService';
 import { getEmployees } from '../api/services/employeesService';
 import { buildAlerts } from '../utils/analytics';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
 
 // ── helpers ──────────────────────────────────────────────────────
 const SEVERITY_MAP = {
@@ -97,15 +99,23 @@ function NewAlertModal({ employees, onClose, onAdd }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-2xl p-6 shadow-2xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Tạo cảnh báo mới</h3>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 hover:bg-slate-100">
-            <X className="h-4 w-4" style={{ color: 'var(--color-muted)' }} />
-          </button>
+    <Modal
+      open={true}
+      title="Tạo cảnh báo mới"
+      description="Nhập thông tin và tạo cảnh báo nhân sự thủ công."
+      onClose={onClose}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={onClose} className="flex-1">
+            Huỷ
+          </Button>
+          <Button onClick={handleSubmit} className="flex-1">
+            Tạo cảnh báo
+          </Button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--color-muted)' }}>Loại cảnh báo</label>
             <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
@@ -146,21 +156,8 @@ function NewAlertModal({ employees, onClose, onAdd }) {
               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none resize-none"
               style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)' }} />
           </div>
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 rounded-xl py-2.5 text-sm font-semibold hover:bg-slate-50"
-              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-              Huỷ
-            </button>
-            <button type="submit"
-              className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-white"
-              style={{ background: 'var(--color-primary)' }}>
-              Tạo cảnh báo
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -178,6 +175,8 @@ export default function Alerts() {
   const [typeFilter, setTypeFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [dailyData, setDailyData] = useState([]);
+  const [loadingDaily, setLoadingDaily] = useState(false);
 
   async function loadData() {
     setLoading(true); setError('');
@@ -206,7 +205,35 @@ export default function Alerts() {
   }), [allAlerts, typeFilter, severityFilter]);
 
   const selected = filtered.find((a) => a.id === selectedId) ?? filtered[0] ?? null;
-  useEffect(() => { if (!selectedId && filtered[0]) setSelectedId(filtered[0].id); }, [filtered]);
+
+  useEffect(() => {
+    if (!selectedId && filtered[0]) setSelectedId(filtered[0].id);
+  }, [filtered]);
+
+  useEffect(() => {
+    async function fetchDaily() {
+      if (selected && (selected.type === 'Vắng nhiều' || selected.type === 'Bất thường chấm công')) {
+        setLoadingDaily(true);
+        try {
+          const now = new Date();
+          const res = await getDailyAbsences({
+            employeeId: selected.employeeId,
+            month: now.getMonth() + 1,
+            year: now.getFullYear(),
+          });
+          setDailyData(res.data ?? []);
+        } catch (e) {
+          console.error('Failed to fetch daily absences', e);
+          setDailyData([]);
+        } finally {
+          setLoadingDaily(false);
+        }
+      } else {
+        setDailyData([]);
+      }
+    }
+    fetchDaily();
+  }, [selectedId, selected?.type]);
 
   const types = [...new Set(allAlerts.map((a) => a.type))];
   const counts = {
@@ -437,6 +464,31 @@ export default function Alerts() {
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text)' }}>{selected.detail}</p>
                 </div>
               </div>
+
+              {/* Specific Dates */}
+              {(selected.type === 'Vắng nhiều' || selected.type === 'Bất thường chấm công') && (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--color-muted)' }}>Danh sách ngày vắng cụ thể</p>
+                  <div className="rounded-xl p-3 space-y-2" style={{ background: 'var(--color-bg)', maxHeight: '200px', overflowY: 'auto' }}>
+                    {loadingDaily ? (
+                      <p className="text-xs animate-pulse" style={{ color: 'var(--color-muted)' }}>Đang tải dữ liệu ngày vắng...</p>
+                    ) : dailyData.length > 0 ? (
+                      dailyData.map((d, i) => (
+                        <div key={i} className="flex justify-between items-center text-xs border-b border-slate-100 pb-1 last:border-0">
+                          <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                            {new Date(d.date).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                          </span>
+                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'var(--badge-critical-bg)', color: 'var(--badge-critical-text)' }}>
+                            {d.status || 'Vắng mặt'}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs" style={{ color: 'var(--color-muted)' }}>Không tìm thấy chi tiết ngày vắng trong tháng này.</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <SeverityBadge severity={selected.severity} />
 

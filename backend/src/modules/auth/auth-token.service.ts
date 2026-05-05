@@ -2,10 +2,12 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 
-interface TokenPayload {
+export interface TokenPayload {
   sub: number;
   username: string;
-  role: string;
+  email: string;
+  /** Array of role names, e.g. ['ADMIN', 'HR_MANAGER'] */
+  roles: string[];
   employeeId?: number | null;
   exp: number;
 }

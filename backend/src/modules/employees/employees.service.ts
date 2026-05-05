@@ -35,7 +35,9 @@ export class EmployeesService {
       Email: employee.Email,
       Phone: employee.Phone,
       DepartmentID: employee.DepartmentID,
+      DepartmentName: employee.department?.DepartmentName || String(employee.DepartmentID || 'N/A'),
       PositionID: employee.PositionID,
+      PositionName: employee.position?.PositionName || 'Chưa xác định',
       Status: normalizeEmployeeStatus(employee.Status),
       BaseSalary: employee.BaseSalary,
       HireDate: employee.HireDate,
@@ -65,12 +67,27 @@ export class EmployeesService {
       where.Status = Not('Inactive');
     }
 
-    const [data, total] = await this.employeesPayrollRepo.findAndCount({
-      where,
-      skip,
-      take: limit,
-      order: { EmployeeID: 'ASC' },
-    });
+    const qb = this.employeesPayrollRepo.createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.department', 'department')
+      .leftJoinAndSelect('employee.position', 'position');
+
+    if (search) {
+      qb.andWhere('employee.FullName LIKE :search', { search: `%${search}%` });
+    }
+    if (departmentId) {
+      qb.andWhere('employee.DepartmentID = :departmentId', { departmentId });
+    }
+    if (status && status !== 'ALL') {
+      qb.andWhere('employee.Status = :status', { status: normalizeEmployeeStatus(status) });
+    } else if (!status) {
+      qb.andWhere('employee.Status != :status', { status: 'Inactive' });
+    }
+
+    qb.orderBy('employee.EmployeeID', 'ASC')
+      .skip(skip)
+      .take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
 
     return {
       status: 'success',
@@ -157,6 +174,34 @@ export class EmployeesService {
     };
   }
 
+  async hardDelete(employeeId: number, actor?: AuditActor, ipAddress?: string) {
+    const employee = await this.employeesPayrollRepo.findOne({
+      where: { EmployeeID: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException(`Employee ${employeeId} not found`);
+    }
+
+    const before = { ...employee };
+
+    await this.employeesPayrollRepo.delete(employeeId);
+    
+    await this.auditService.write({
+      actor,
+      action: 'DELETE',
+      entityType: 'Employee',
+      entityId: employeeId,
+      oldValues: before,
+      ipAddress,
+    });
+
+    return {
+      status: 'success',
+      message: 'Employee deleted permanently',
+    };
+  }
+
   async softDelete(employeeId: number, actor?: AuditActor, ipAddress?: string) {
     const employee = await this.employeesPayrollRepo.findOne({
       where: { EmployeeID: employeeId },
@@ -173,7 +218,7 @@ export class EmployeesService {
     const savedEmployee = await this.employeesPayrollRepo.save(employee);
     await this.auditService.write({
       actor,
-      action: 'DELETE',
+      action: 'DEACTIVATE',
       entityType: 'Employee',
       entityId: savedEmployee.EmployeeID,
       oldValues: before,

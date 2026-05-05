@@ -4,8 +4,10 @@ import {
   createEmployee,
   deleteEmployee,
   getEmployees,
+  hardDeleteEmployee,
   updateEmployee,
 } from '../api/services/employeesService';
+import { listRecords } from '../api/services/srsService';
 import Button from '../components/ui/Button';
 import DataTable from '../components/ui/DataTable';
 import EmptyState from '../components/ui/EmptyState';
@@ -17,6 +19,7 @@ import PageHeader from '../components/ui/PageHeader';
 import SectionToolbar from '../components/ui/SectionToolbar';
 import StatusBadge from '../components/ui/StatusBadge';
 import { employeeStatusOptions, STATUS_OPTIONS } from '../utils/constants';
+import { useAuth } from '../hooks/useAuth';
 
 const defaultStatus = STATUS_OPTIONS[0] ?? 'Active';
 const activeStatusValue = 'Active';
@@ -41,16 +44,23 @@ function getActionErrorMessage(error, fallbackMessage) {
 }
 
 export default function Employees() {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission('employee.create');
+  const canUpdate = hasPermission('employee.update');
+  const canDelete = hasPermission('employee.delete');
+
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState({ search: '', status: activeStatusValue });
+  const [filters, setFilters] = useState({ search: '', status: allStatusesValue });
   const [modalMode, setModalMode] = useState('');
   const [form, setForm] = useState(defaultForm);
   const [actionMessage, setActionMessage] = useState('');
   const [actionTone, setActionTone] = useState('success');
   const [submitting, setSubmitting] = useState(false);
+  const [departments, setDepartments] = useState([]);
+  const [positions, setPositions] = useState([]);
 
   async function loadEmployees(activeQuery = filters) {
     setLoading(true);
@@ -60,6 +70,7 @@ export default function Employees() {
       const response = await getEmployees({
         search: activeQuery.search || undefined,
         status: activeQuery.status || undefined,
+        limit: 1000,
       });
       setRows(response.data ?? []);
       setMeta(response.meta ?? null);
@@ -69,6 +80,23 @@ export default function Employees() {
       setLoading(false);
     }
   }
+
+  async function loadMetadata() {
+    try {
+      const [deptRes, posRes] = await Promise.all([
+        listRecords('/departments', { limit: 100 }),
+        listRecords('/positions', { limit: 100 }),
+      ]);
+      setDepartments(deptRes.data ?? []);
+      setPositions(posRes.data ?? []);
+    } catch (e) {
+      console.error('Failed to load metadata', e);
+    }
+  }
+
+  useEffect(() => {
+    loadMetadata();
+  }, []);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -111,6 +139,19 @@ export default function Employees() {
     setModalMode('deactivate');
   }
 
+  function openDeleteModal(employee) {
+    setForm({
+      EmployeeID: String(employee.EmployeeID ?? ''),
+      FullName: employee.FullName ?? '',
+      DepartmentID: String(employee.DepartmentID ?? ''),
+      PositionID: String(employee.PositionID ?? ''),
+      Status: employee.Status ?? defaultStatus,
+    });
+    setActionMessage('');
+    setActionTone('success');
+    setModalMode('delete');
+  }
+
   function closeModal() {
     setModalMode('');
     setActionMessage('');
@@ -146,7 +187,11 @@ export default function Employees() {
       } else if (modalMode === 'deactivate') {
         await deleteEmployee(Number(form.EmployeeID));
         setActionTone('success');
-        setActionMessage('Đã vô hiệu hóa nhân viên. Bản ghi vẫn được giữ trong DB theo quy tắc xóa mềm.');
+        setActionMessage('Đã vô hiệu hóa nhân viên thành công.');
+      } else if (modalMode === 'delete') {
+        await hardDeleteEmployee(Number(form.EmployeeID));
+        setActionTone('success');
+        setActionMessage('Đã xóa nhân viên vĩnh viễn khỏi hệ thống.');
       }
 
       await loadEmployees(filters);
@@ -158,9 +203,11 @@ export default function Employees() {
       setActionMessage(
         getActionErrorMessage(
           actionError,
-          modalMode === 'deactivate'
-            ? 'Không thể vô hiệu hóa nhân viên.'
-            : 'Không thể lưu thông tin nhân viên.',
+          modalMode === 'delete'
+            ? 'Không thể xóa nhân viên này (có thể do dữ liệu đã được liên kết).'
+            : modalMode === 'deactivate'
+              ? 'Không thể vô hiệu hóa nhân viên.'
+              : 'Không thể lưu thông tin nhân viên.',
         ),
       );
     } finally {
@@ -186,12 +233,12 @@ export default function Employees() {
     {
       key: 'DepartmentID',
       header: 'Phòng ban',
-      render: (row) => row.DepartmentID ?? 'N/A',
+      render: (row) => row.DepartmentName ?? 'N/A',
     },
     {
       key: 'PositionID',
       header: 'Chức vụ',
-      render: (row) => row.PositionID ?? 'N/A',
+      render: (row) => row.PositionName ?? 'N/A',
     },
     {
       key: 'Status',
@@ -203,19 +250,24 @@ export default function Employees() {
       header: 'Thao tác',
       render: (row) => (
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => openEditModal(row)}>
-            <PencilLine className="mr-2 h-4 w-4" />
-            Sửa
-          </Button>
-          {row.Status === 'Inactive' ? (
-            <Button variant="secondary" size="sm" disabled>
-              Đã vô hiệu hóa
+          {canUpdate && (
+            <Button variant="secondary" size="sm" onClick={() => openEditModal(row)}>
+              <PencilLine className="mr-2 h-4 w-4" />
+              Sửa
             </Button>
-          ) : (
-            <Button variant="danger" size="sm" onClick={() => openDeactivateModal(row)}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Vô hiệu hóa
-            </Button>
+          )}
+          {canDelete && (
+            <div className="flex gap-2">
+              {row.Status !== 'Inactive' && (
+                <Button variant="secondary" size="sm" onClick={() => openDeactivateModal(row)}>
+                  Vô hiệu hóa
+                </Button>
+              )}
+              <Button variant="danger" size="sm" onClick={() => openDeleteModal(row)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Xóa
+              </Button>
+            </div>
           )}
         </div>
       ),
@@ -231,12 +283,14 @@ export default function Employees() {
       <PageHeader
         eyebrow="Nhân viên"
         title="Quản lý nhân viên"
-        description="Tra cứu và quản lý hồ sơ nhân viên trong cơ sở dữ liệu Payroll. Nhân viên bị vô hiệu hóa không bị xóa vật lý."
+        description="Tra cứu và quản lý hồ sơ nhân viên trong cơ sở dữ liệu Payroll."
         action={
-          <Button onClick={openCreateModal}>
-            <Plus className="mr-2 h-4 w-4" />
-            Thêm nhân viên
-          </Button>
+          canCreate ? (
+            <Button onClick={openCreateModal}>
+              <Plus className="mr-2 h-4 w-4" />
+              Thêm nhân viên
+            </Button>
+          ) : null
         }
       />
 
@@ -298,12 +352,16 @@ export default function Employees() {
             ? 'Thêm nhân viên'
             : modalMode === 'edit'
               ? 'Chỉnh sửa nhân viên'
-              : 'Vô hiệu hóa nhân viên'
+              : modalMode === 'deactivate'
+                ? 'Vô hiệu hóa nhân viên'
+                : 'Xóa nhân viên'
         }
         description={
-          modalMode === 'deactivate'
-            ? 'Theo SRS, nhân viên không bị xóa vật lý. Hệ thống chỉ chuyển trạng thái sang Ngừng hoạt động.'
-            : 'Tạo mới và cập nhật thông tin nhân viên trong cơ sở dữ liệu lương.'
+          modalMode === 'delete'
+            ? 'Cảnh báo: Hành động này sẽ xóa vĩnh viễn nhân viên khỏi cơ sở dữ liệu. Không thể hoàn tác!'
+            : modalMode === 'deactivate'
+              ? 'Hành động này sẽ chuyển trạng thái nhân viên sang Ngừng hoạt động. Dữ liệu vẫn được giữ lại để đối soát.'
+              : 'Tạo mới và cập nhật thông tin nhân viên trong cơ sở dữ liệu lương.'
         }
         onClose={closeModal}
         footer={
@@ -312,28 +370,34 @@ export default function Employees() {
               Hủy
             </Button>
             <Button
-              variant={modalMode === 'deactivate' ? 'danger' : 'primary'}
+              variant={modalMode === 'delete' || modalMode === 'deactivate' ? 'danger' : 'primary'}
               onClick={handleEmployeeAction}
               disabled={submitting}
             >
               {submitting
-                ? modalMode === 'deactivate'
-                  ? 'Đang vô hiệu hóa...'
-                  : 'Đang lưu...'
-                : modalMode === 'deactivate'
-                  ? 'Vô hiệu hóa'
-                  : 'Lưu nhân viên'}
+                ? modalMode === 'delete'
+                  ? 'Đang xóa...'
+                  : modalMode === 'deactivate'
+                    ? 'Đang vô hiệu hóa...'
+                    : 'Đang lưu...'
+                : modalMode === 'delete'
+                  ? 'Xóa vĩnh viễn'
+                  : modalMode === 'deactivate'
+                    ? 'Xác nhận vô hiệu hóa'
+                    : 'Lưu nhân viên'}
             </Button>
           </div>
         }
       >
-        {modalMode === 'deactivate' ? (
+        {modalMode === 'delete' || modalMode === 'deactivate' ? (
           <div className="space-y-4">
             <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-              Bạn đang chuẩn bị vô hiệu hóa <strong>{form.FullName}</strong> (#{form.EmployeeID}).
+              Bạn đang chuẩn bị {modalMode === 'delete' ? 'xóa vĩnh viễn' : 'vô hiệu hóa'} <strong>{form.FullName}</strong> (#{form.EmployeeID}).
             </div>
-            <div className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-700">
-              Sau thao tác này, nhân viên sẽ biến mất khỏi bộ lọc “Đang làm việc”, nhưng vẫn còn trong “Tất cả trạng thái” để truy vết dữ liệu.
+            <div className={`rounded-2xl p-4 text-sm ${modalMode === 'delete' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+              {modalMode === 'delete' 
+                ? 'Sau thao tác này, toàn bộ dữ liệu của nhân viên này sẽ bị xóa khỏi hệ thống. Hành động này không thể hoàn tác.'
+                : 'Nhân viên sẽ được chuyển sang trạng thái Ngừng hoạt động và không xuất hiện trong các danh sách mặc định.'}
             </div>
           </div>
         ) : (
@@ -356,23 +420,27 @@ export default function Employees() {
               }
               options={editableStatusOptions}
             />
-            <InputField
-              label="Mã phòng ban"
-              type="number"
+            <SelectField
+              label="Phòng ban"
               value={form.DepartmentID}
               onChange={(event) =>
                 setForm((current) => ({ ...current, DepartmentID: event.target.value }))
               }
-              placeholder="Nhập mã phòng ban"
+              options={[
+                { label: '-- Chọn phòng ban --', value: '' },
+                ...departments.map((d) => ({ label: d.DepartmentName, value: String(d.DepartmentID) })),
+              ]}
             />
-            <InputField
-              label="Mã chức vụ"
-              type="number"
+            <SelectField
+              label="Chức vụ"
               value={form.PositionID}
               onChange={(event) =>
                 setForm((current) => ({ ...current, PositionID: event.target.value }))
               }
-              placeholder="Nhập mã chức vụ"
+              options={[
+                { label: '-- Chọn chức vụ --', value: '' },
+                ...positions.map((p) => ({ label: p.PositionName, value: String(p.PositionID) })),
+              ]}
             />
             <div className="md:col-span-2">
               <InputField

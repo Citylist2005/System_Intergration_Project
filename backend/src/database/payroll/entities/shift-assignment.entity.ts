@@ -1,4 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { WorkShift } from './work-shift.entity';
 
 @Entity('shift_assignments')
 export class ShiftAssignment {
@@ -25,4 +34,8 @@ export class ShiftAssignment {
 
   @UpdateDateColumn()
   UpdatedAt: Date;
+
+  @ManyToOne(() => WorkShift, { nullable: true })
+  @JoinColumn({ name: 'ShiftID' })
+  shift?: WorkShift;
 }

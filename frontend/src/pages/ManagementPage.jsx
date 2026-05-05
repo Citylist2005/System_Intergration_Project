@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { PencilLine, Plus, Search, Trash2 } from 'lucide-react';
 import {
   createRecord,
@@ -16,6 +17,8 @@ import Modal from '../components/ui/Modal';
 import PageHeader from '../components/ui/PageHeader';
 import SectionToolbar from '../components/ui/SectionToolbar';
 import StatusBadge from '../components/ui/StatusBadge';
+import useAuth from '../hooks/useAuth';
+import { canAccessEndpoint } from '../utils/accessControl';
 
 function getInitialForm(fields) {
   return Object.fromEntries(fields.map((field) => [field.name, field.defaultValue ?? '']));
@@ -65,6 +68,8 @@ function getErrorMessage(error, fallback) {
 }
 
 export default function ManagementPage({ config }) {
+  const auth = useAuth();
+  const hasEndpointAccess = canAccessEndpoint(config.endpoint, auth);
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +87,10 @@ export default function ManagementPage({ config }) {
   );
 
   async function load(activeSearch = search) {
+    if (!hasEndpointAccess) {
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -100,9 +109,17 @@ export default function ManagementPage({ config }) {
   }
 
   useEffect(() => {
+    if (!hasEndpointAccess) {
+      return undefined;
+    }
+
     const timeoutId = window.setTimeout(() => load(search), 200);
     return () => window.clearTimeout(timeoutId);
-  }, [config.endpoint, search]);
+  }, [config.endpoint, hasEndpointAccess, search]);
+
+  if (!hasEndpointAccess) {
+    return <Navigate to="/" replace />;
+  }
 
   function openCreate() {
     setForm(getInitialForm(config.fields));

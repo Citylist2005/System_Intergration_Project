@@ -6,7 +6,7 @@ export default function StatCard({
   accent = 'bg-[var(--color-primary)] text-white',
 }) {
   return (
-    <div className="rounded-[30px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-soft)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-soft-lg)]">
+    <div className="rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-soft)] hover-scale">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-3">
           <p className="text-sm font-medium text-[var(--color-muted)]">{title}</p>

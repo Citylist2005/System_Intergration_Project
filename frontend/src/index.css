@@ -1,47 +1,40 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Manrope", "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 :root {
-  /* Light content area */
-  --color-bg: #f0f2f8;
-  --color-surface: #ffffff;
-  --color-surface-soft: #f8fafc;
-  --color-primary: #4f6ef7;
-  --color-primary-dark: #3451d1;
-  --color-primary-soft: #e0e7ff;
-  --color-success: #16a34a;
-  --color-success-soft: #dcfce7;
-  --color-warning: #f59e0b;
-  --color-warning-soft: #fef3c7;
-  --color-danger: #dc2626;
-  --color-danger-soft: #fee2e2;
-  --color-text: #0f172a;
-  --color-muted: #64748b;
-  --color-border: #e2e8f0;
-  --shadow-soft: 0 18px 40px -28px rgba(15, 23, 42, 0.24);
-  --shadow-soft-lg: 0 24px 55px -30px rgba(79, 110, 247, 0.18);
+  /* Light content area - BambooHR Style */
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-surface-soft: #F1F5F9;
+  --color-primary: #3B82F6;
+  --color-primary-dark: #2563EB;
+  --color-primary-soft: #DBEAFE;
+  --color-success: #22C55E;
+  --color-success-soft: #DCFCE7;
+  --color-warning: #F59E0B;
+  --color-warning-soft: #FEF3C7;
+  --color-danger: #EF4444;
+  --color-danger-soft: #FEE2E2;
+  --color-text: #0F172A;
+  --color-muted: #64748B;
+  --color-border: #E5E7EB;
+  --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-soft-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
 
-  /* Dark sidebar */
-  --sidebar-bg: #1e2348;
-  --sidebar-bg-deep: #161936;
-  --sidebar-text: rgba(255,255,255,0.75);
-  --sidebar-text-active: #ffffff;
-  --sidebar-active-bg: rgba(79,110,247,0.28);
-  --sidebar-active-border: rgba(79,110,247,0.6);
-  --sidebar-hover-bg: rgba(255,255,255,0.07);
-  --sidebar-border: rgba(255,255,255,0.08);
-  --sidebar-width: 216px;
+  /* Global Container Spacing */
+  --content-max-width: 1360px;
+  --header-height: 64px;
 
   /* Severity badges */
-  --badge-critical-bg: #fee2e2;
-  --badge-critical-text: #b91c1c;
-  --badge-warning-bg: #fef3c7;
-  --badge-warning-text: #b45309;
-  --badge-info-bg: #dbeafe;
-  --badge-info-text: #1d4ed8;
+  --badge-critical-bg: #FEE2E2;
+  --badge-critical-text: #B91C1C;
+  --badge-warning-bg: #FEF3C7;
+  --badge-warning-text: #B45309;
+  --badge-info-bg: #DBEAFE;
+  --badge-info-text: #1D4ED8;
 }
 
 html {
@@ -51,10 +44,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(219, 234, 254, 0.8), transparent 28%),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.92), transparent 24%),
-    linear-gradient(180deg, #fbfdff 0%, var(--color-bg) 48%, #f3f6fb 100%);
+  background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -74,4 +64,186 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+/* Global Table Styles */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+th {
+  background-color: var(--color-surface-soft);
+  color: var(--color-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+th:first-child {
+  border-top-left-radius: 0.5rem;
+}
+
+th:last-child {
+  border-top-right-radius: 0.5rem;
+}
+
+td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 0.875rem;
+}
+
+tr:hover td {
+  background-color: #F8FAFC;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/* Table container styling */
+.table-container {
+  background: var(--color-surface);
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+/* Base button styling */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: 9999px; /* pill shape */
+  padding: 0.5rem 1.25rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-dark);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 9999px;
+  padding: 0.5rem 1.25rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-primary-soft);
+}
+
+.btn-danger {
+  background-color: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-radius: 9999px;
+  padding: 0.5rem 1.25rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.btn-danger:hover {
+  background-color: #FECACA;
+}
+
+/* BambooHR Animations */
+@keyframes mega-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mega-menu-enter {
+  animation: mega-menu-enter 200ms ease-out forwards;
+}
+
+@keyframes page-transition-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: page-transition-enter 200ms ease-out forwards;
+}
+
+.hover-scale {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.hover-scale:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-soft-lg);
+}
+
+@keyframes nav-float-in {
+  from {
+    opacity: 0.92;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.nav-trigger {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.nav-trigger:hover {
+  transform: translateY(-1px);
+}
+
+.nav-trigger-active {
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(219, 234, 254, 0.62));
+  box-shadow: 0 10px 22px -18px rgba(37, 99, 235, 0.85);
+}
+
+.nav-dropdown {
+  animation: nav-float-in 180ms ease-out forwards;
+  transform-origin: top center;
+}
+
+.nav-dropdown-item {
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.nav-dropdown-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px -24px rgba(15, 23, 42, 0.35);
 }

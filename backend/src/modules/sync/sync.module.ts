@@ -12,8 +12,10 @@ import { EmployeesPayroll } from '../../database/payroll/entities/employees-payr
 import { PayrollDepartment } from '../../database/payroll/entities/departments-payroll.entity';
 import { PayrollPosition } from '../../database/payroll/entities/positions-payroll.entity';
 import { Attendance } from '../../database/payroll/entities/attendance.entity';
+import { SyncStatus } from '../../database/payroll/entities/sync-status.entity';
 
 import { SyncController } from './sync.controller';
+import { SyncCronService } from './sync.cron';
 import { SyncService } from './sync.service';
 
 @Module({
@@ -25,12 +27,12 @@ import { SyncService } from './sync.service';
     ),
     // Target: MySQL
     TypeOrmModule.forFeature(
-      [EmployeesPayroll, PayrollDepartment, PayrollPosition, Attendance],
+      [EmployeesPayroll, PayrollDepartment, PayrollPosition, Attendance, SyncStatus],
       'payrollConnection',
     ),
   ],
   controllers: [SyncController],
-  providers: [SyncService, DatabaseConnectionsService],
+  providers: [SyncService, SyncCronService, DatabaseConnectionsService],
   exports: [SyncService],
 })
 export class SyncModule {}

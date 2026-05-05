@@ -1,24 +1,26 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { Request } from 'express';
-import { Roles } from '../auth/roles.decorator';
+import { Permissions } from '../auth/permissions.decorator';
 import { CrudService } from '../crud/crud.service';
 import {
-  BenefitsInsuranceService,
   DepartmentsService,
   EmployeeLifecycleService,
   KpiOkrService,
   LeaveRequestsService,
-  OnboardingOffboardingService,
-  OvertimeRequestsService,
   PayrollAdjustmentsService,
   PerformanceEvaluationService,
   PositionsService,
-  SalaryPoliciesService,
-  ShiftAssignmentsService,
   SystemBackupService,
   UsersService,
   WorkShiftsService,
 } from './srs.services';
+import {
+  BenefitsInsuranceService,
+  OnboardingOffboardingService,
+  OvertimeRequestsService,
+  SalaryPoliciesService,
+  ShiftAssignmentsService,
+} from './business-rules.services';
 
 type AuthRequest = Request & { user?: { sub?: number; username?: string; role?: string } };
 type QueryParams = { search?: string; page?: number; limit?: number };
@@ -57,7 +59,7 @@ abstract class BaseCrudController {
 }
 
 @Controller('departments')
-@Roles('Admin', 'HR_Manager')
+@Permissions('department.manage')
 export class DepartmentsController extends BaseCrudController {
   constructor(service: DepartmentsService) {
     super(service);
@@ -65,7 +67,7 @@ export class DepartmentsController extends BaseCrudController {
 }
 
 @Controller('positions')
-@Roles('Admin', 'HR_Manager')
+@Permissions('position.manage')
 export class PositionsController extends BaseCrudController {
   constructor(service: PositionsService) {
     super(service);
@@ -73,7 +75,7 @@ export class PositionsController extends BaseCrudController {
 }
 
 @Controller('work-shifts')
-@Roles('Admin', 'HR_Manager', 'Payroll_Manager')
+@Permissions('shift.manage')
 export class WorkShiftsController extends BaseCrudController {
   constructor(service: WorkShiftsService) {
     super(service);
@@ -81,7 +83,7 @@ export class WorkShiftsController extends BaseCrudController {
 }
 
 @Controller('shift-assignments')
-@Roles('Admin', 'HR_Manager', 'Payroll_Manager')
+@Permissions('shift.manage')
 export class ShiftAssignmentsController extends BaseCrudController {
   constructor(service: ShiftAssignmentsService) {
     super(service);
@@ -89,7 +91,7 @@ export class ShiftAssignmentsController extends BaseCrudController {
 }
 
 @Controller('leave-requests')
-@Roles('Admin', 'HR_Manager', 'Employee')
+@Permissions('leave.manage')
 export class LeaveRequestsController extends BaseCrudController {
   constructor(service: LeaveRequestsService) {
     super(service);
@@ -97,7 +99,7 @@ export class LeaveRequestsController extends BaseCrudController {
 }
 
 @Controller('overtime-requests')
-@Roles('Admin', 'HR_Manager', 'Payroll_Manager', 'Employee')
+@Permissions('overtime.manage')
 export class OvertimeRequestsController extends BaseCrudController {
   constructor(service: OvertimeRequestsService) {
     super(service);
@@ -105,23 +107,53 @@ export class OvertimeRequestsController extends BaseCrudController {
 }
 
 @Controller('salary-policies')
-@Roles('Admin', 'Payroll_Manager')
+@Permissions('payroll.manage')
 export class SalaryPoliciesController extends BaseCrudController {
+  constructor(private readonly salaryPoliciesService: SalaryPoliciesService) {
+    super(salaryPoliciesService);
+  }
+
+  @Post(':id/clone')
+  clonePolicy(@Param('id', ParseIntPipe) id: number, @Req() request: AuthRequest) {
+    return this.salaryPoliciesService.clonePolicy(id, request.user);
+  }
+}
+
+@Controller('benefits-insurance')
+@Permissions('payroll.manage')
+export class BenefitsInsuranceController extends BaseCrudController {
+  constructor(private readonly benefitsInsuranceService: BenefitsInsuranceService) {
+    super(benefitsInsuranceService);
+  }
+
+  @Post('bulk-apply')
+  bulkApply(
+    @Body() body: { employeeIds: number[]; benefitData: Record<string, unknown> },
+    @Req() request: AuthRequest,
+  ) {
+    return this.benefitsInsuranceService.bulkApply(
+      body.employeeIds ?? [],
+      body.benefitData ?? {},
+      request.user,
+    );
+  }
+}
+
+/* replaced by extended controller above */
+class LegacySalaryPoliciesController extends BaseCrudController {
   constructor(service: SalaryPoliciesService) {
     super(service);
   }
 }
 
-@Controller('benefits-insurance')
-@Roles('Admin', 'Payroll_Manager')
-export class BenefitsInsuranceController extends BaseCrudController {
+class LegacyBenefitsInsuranceController extends BaseCrudController {
   constructor(service: BenefitsInsuranceService) {
     super(service);
   }
 }
 
 @Controller('payroll-adjustments')
-@Roles('Admin', 'Payroll_Manager')
+@Permissions('payroll.manage')
 export class PayrollAdjustmentsController extends BaseCrudController {
   constructor(service: PayrollAdjustmentsService) {
     super(service);
@@ -129,7 +161,7 @@ export class PayrollAdjustmentsController extends BaseCrudController {
 }
 
 @Controller('employee-lifecycle')
-@Roles('Admin', 'HR_Manager')
+@Permissions('employee.manage')
 export class EmployeeLifecycleController extends BaseCrudController {
   constructor(service: EmployeeLifecycleService) {
     super(service);
@@ -137,7 +169,7 @@ export class EmployeeLifecycleController extends BaseCrudController {
 }
 
 @Controller('onboarding-offboarding')
-@Roles('Admin', 'HR_Manager')
+@Permissions('employee.manage')
 export class OnboardingOffboardingController extends BaseCrudController {
   constructor(service: OnboardingOffboardingService) {
     super(service);
@@ -145,7 +177,7 @@ export class OnboardingOffboardingController extends BaseCrudController {
 }
 
 @Controller('kpi-okr')
-@Roles('Admin', 'HR_Manager', 'Employee')
+@Permissions('kpi.manage')
 export class KpiOkrController extends BaseCrudController {
   constructor(service: KpiOkrService) {
     super(service);
@@ -153,15 +185,31 @@ export class KpiOkrController extends BaseCrudController {
 }
 
 @Controller('performance-evaluation')
-@Roles('Admin', 'HR_Manager', 'Employee')
+@Permissions('performance.manage')
 export class PerformanceEvaluationController extends BaseCrudController {
-  constructor(service: PerformanceEvaluationService) {
-    super(service);
+  constructor(private readonly performanceService: PerformanceEvaluationService) {
+    super(performanceService);
+  }
+
+  @Post('auto-calculate')
+  autoCalculate(
+    @Body()
+    body: {
+      EmployeeID: number;
+      ReviewPeriod: string;
+      ReviewerID?: number;
+      Status?: string;
+      Strengths?: string;
+      Weaknesses?: string;
+      Goals?: string;
+    },
+  ) {
+    return this.performanceService.autoCalculate(body);
   }
 }
 
 @Controller('users')
-@Roles('Admin')
+@Permissions('user.manage')
 export class UsersController extends BaseCrudController {
   constructor(service: UsersService) {
     super(service);
@@ -169,9 +217,14 @@ export class UsersController extends BaseCrudController {
 }
 
 @Controller('system-backup')
-@Roles('Admin')
+@Permissions('backup.manage')
 export class SystemBackupController extends BaseCrudController {
-  constructor(service: SystemBackupService) {
-    super(service);
+  constructor(private readonly systemBackupService: SystemBackupService) {
+    super(systemBackupService);
+  }
+
+  @Post(':id/restore')
+  restore(@Param('id', ParseIntPipe) id: number, @Req() request: AuthRequest) {
+    return this.systemBackupService.restore(id, request.user);
   }
 }

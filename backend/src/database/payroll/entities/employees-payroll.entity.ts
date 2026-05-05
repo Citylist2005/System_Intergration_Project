@@ -10,10 +10,10 @@ export class EmployeesPayroll {
   @Column({ type: 'varchar', length: 100, nullable: true })
   FullName: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'DepartmentID', nullable: true })
   DepartmentID: number;
 
-  @Column({ nullable: true })
+  @Column({ name: 'PositionID', nullable: true })
   PositionID: number;
 
   @Column({ type: 'varchar', length: 20, default: 'Active' })

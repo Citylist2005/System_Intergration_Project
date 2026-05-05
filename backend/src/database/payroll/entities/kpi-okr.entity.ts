@@ -32,6 +32,10 @@ export class KpiOkr {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   Score: number;
 
+  /** Tiền thưởng KPI (VND) — được điền khi duyệt KPI, dùng để tính lương */
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, default: 0 })
+  BonusAmount: number;
+
   @Column({ type: 'varchar', length: 20, default: 'Active' })
   Status: string;
 

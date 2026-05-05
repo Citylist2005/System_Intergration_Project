@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req } fro
 import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { AttendanceQueryDto, AttendanceSummaryQueryDto } from './dto/attendance-query.dto';
+import { Permissions } from '../auth/permissions.decorator';
 
 @Controller('attendance')
 export class AttendanceController {
@@ -9,10 +10,10 @@ export class AttendanceController {
 
   /**
    * GET /api/v1/attendance
-   * Join attendance + employees_payroll
-   * Returns: EmployeeID, FullName, WorkDays, AbsentDays, LeaveDays, AttendanceMonth
+   * Requires: attendance.read
    */
   @Get()
+  @Permissions('attendance.read')
   async findAll(@Query() query: AttendanceQueryDto) {
     return this.attendanceService.findAll({
       employeeId: query.employeeId,
@@ -25,9 +26,10 @@ export class AttendanceController {
 
   /**
    * GET /api/v1/attendance/summary
-   * Attendance summary per employee
+   * Requires: attendance.read
    */
   @Get('summary')
+  @Permissions('attendance.read')
   async getSummary(@Query() query: AttendanceSummaryQueryDto) {
     return this.attendanceService.getSummary({
       employeeId: query.employeeId,
@@ -36,7 +38,12 @@ export class AttendanceController {
     });
   }
 
+  /**
+   * POST /api/v1/attendance/manual
+   * Requires: attendance.create
+   */
   @Post('manual')
+  @Permissions('attendance.create')
   async upsertManual(
     @Body()
     body: {
@@ -48,12 +55,41 @@ export class AttendanceController {
       leaveDays: number;
       overtimeHours?: number;
     },
-    @Req() request: Request & { user?: { sub?: number; username?: string; role?: string } },
+    @Req() request: Request & { user?: { sub?: number; username?: string; roles?: string[] } },
   ) {
     return this.attendanceService.upsertManual(body, request.user, request.ip);
   }
 
+  /**
+   * POST /api/v1/attendance/bulk
+   * Requires: attendance.create
+   */
+  @Post('bulk')
+  @Permissions('attendance.create')
+  async bulkUpsert(
+    @Body()
+    body: {
+      rows: Array<{
+        employeeId: number;
+        month: number;
+        year: number;
+        workDays: number;
+        absentDays: number;
+        leaveDays: number;
+        overtimeHours?: number;
+      }>;
+    },
+    @Req() request: Request & { user?: { sub?: number; username?: string; roles?: string[] } },
+  ) {
+    return this.attendanceService.bulkUpsert(body.rows ?? [], request.user, request.ip);
+  }
+
+  /**
+   * PUT /api/v1/attendance/:id
+   * Requires: attendance.update
+   */
   @Put(':id')
+  @Permissions('attendance.update')
   async updateManual(
     @Param('id', ParseIntPipe) id: number,
     @Body()
@@ -63,8 +99,22 @@ export class AttendanceController {
       leaveDays: number;
       overtimeHours?: number;
     },
-    @Req() request: Request & { user?: { sub?: number; username?: string; role?: string } },
+    @Req() request: Request & { user?: { sub?: number; username?: string; roles?: string[] } },
   ) {
     return this.attendanceService.updateManual(id, body, request.user, request.ip);
+  }
+
+  /**
+   * GET /api/v1/attendance/daily-absences
+   * Requires: attendance.read
+   */
+  @Get('daily-absences')
+  @Permissions('attendance.read')
+  async getDailyAbsences(
+    @Query('employeeId', ParseIntPipe) employeeId: number,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('year', ParseIntPipe) year: number,
+  ) {
+    return this.attendanceService.getDailyAbsences(employeeId, month, year);
   }
 }

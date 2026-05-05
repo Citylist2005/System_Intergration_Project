@@ -1,7 +1,9 @@
 node_modules/
 backend/node_modules/
 frontend/node_modules/
+backend/.npm-cache/
 dist/
+backend/dist-dev/
 logs/
 .env
 *.log

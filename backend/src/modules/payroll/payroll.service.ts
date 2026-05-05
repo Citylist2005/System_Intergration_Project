@@ -8,8 +8,10 @@ import { SalaryPolicy } from '../../database/payroll/entities/salary-policy.enti
 import { BenefitsInsurance } from '../../database/payroll/entities/benefits-insurance.entity';
 import { PayrollAdjustment } from '../../database/payroll/entities/payroll-adjustment.entity';
 import { OvertimeRequest } from '../../database/payroll/entities/overtime-request.entity';
+import { KpiOkr } from '../../database/payroll/entities/kpi-okr.entity';
 import { isPayrollEligibleStatus } from '../../common/employee-status';
 import { UpdatePayrollDto, UpsertPayrollDto } from './dto/manual-payroll.dto';
+import { PitTaxService } from '../tax/pit-tax.service';
 
 interface FindAllParams {
   employeeId?: number;
@@ -20,7 +22,40 @@ interface FindAllParams {
   limit: number;
 }
 
+/** Số ngày làm việc tiêu chuẩn/tháng */
 const STANDARD_WORK_DAYS_PER_MONTH = 26;
+
+/**
+ * Các thành phần lương được tách rõ theo SRS.
+ * Đây là kết quả trung gian dùng để lưu DB và trả ra API.
+ */
+export interface PayrollComponents {
+  /** 1. Lương cơ bản (base salary từ hợp đồng) */
+  baseSalary: number;
+  /** 2. Lương gộp = baseSalary + KPI bonus + overtime pay + adjustmentAdditions */
+  grossSalary: number;
+  /** 3. Khấu trừ vắng mặt (attendance deduction) */
+  attendanceDeduction: number;
+  /** 4. Tiền tăng ca (overtime pay) */
+  overtimePay: number;
+  /** 5. Thưởng KPI */
+  kpiBonus: number;
+  /** 6. Khấu trừ BHXH nhân viên đóng (employee share) */
+  insuranceDeduction: number;
+  /** 7. Khấu trừ lợi ích khác (benefit deductions) */
+  benefitDeductions: number;
+  /** 8. Điều chỉnh lương dương (+) */
+  adjustmentAdditions: number;
+  /** 9. Điều chỉnh lương âm (-) */
+  adjustmentDeductions: number;
+  /** 10. Thu nhập tính thuế TNCN */
+  taxableIncome: number;
+  /** 11. Thuế TNCN (PIT) theo bậc lũy tiến */
+  pitTax: number;
+  /** 12. Lương thực nhận = grossSalary - attendanceDeduction - insuranceDeduction
+   *                         - benefitDeductions - adjustmentDeductions - pitTax */
+  netSalary: number;
+}
 
 @Injectable()
 export class PayrollService {
@@ -45,13 +80,19 @@ export class PayrollService {
 
     @InjectRepository(OvertimeRequest, 'payrollConnection')
     private readonly overtimeRepo: Repository<OvertimeRequest>,
+
+    @InjectRepository(KpiOkr, 'payrollConnection')
+    private readonly kpiRepo: Repository<KpiOkr>,
+
+    private readonly pitTaxService: PitTaxService,
   ) {}
+
+  // ─── Public API ─────────────────────────────────────────────────────────────
 
   async findAll(params: FindAllParams) {
     const { employeeId, month, year, page, limit } = params;
     const skip = (page - 1) * limit;
 
-    // Subquery: lấy SalaryID lớn nhất (mới nhất) cho mỗi (EmployeeID, SalaryMonth)
     const latestIdSubQuery = this.salaryRepo
       .createQueryBuilder('sub')
       .select('MAX(sub.SalaryID)', 'maxId')
@@ -70,15 +111,9 @@ export class PayrollService {
       .skip(skip)
       .take(limit);
 
-    if (employeeId) {
-      qb.andWhere('s.EmployeeID = :employeeId', { employeeId });
-    }
-    if (month) {
-      qb.andWhere('MONTH(s.SalaryMonth) = :month', { month });
-    }
-    if (year) {
-      qb.andWhere('YEAR(s.SalaryMonth) = :year', { year });
-    }
+    if (employeeId) qb.andWhere('s.EmployeeID = :employeeId', { employeeId });
+    if (month) qb.andWhere('MONTH(s.SalaryMonth) = :month', { month });
+    if (year) qb.andWhere('YEAR(s.SalaryMonth) = :year', { year });
 
     const [records, total] = await qb.getManyAndCount();
 
@@ -90,12 +125,7 @@ export class PayrollService {
       status: 'success',
       message: 'Payroll records fetched',
       data,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
@@ -103,143 +133,80 @@ export class PayrollService {
     await this.ensureSalaryConstraints();
 
     let employees = await this.employeesRepo.find();
+    employees = employees.filter((e) => this.isActiveEmployee(e));
 
-    employees = employees.filter((employee) => this.isActiveEmployee(employee));
-
-    if (employeeIds && employeeIds.length > 0) {
+    if (employeeIds?.length) {
       const idSet = new Set(employeeIds);
-      employees = employees.filter((employee) => idSet.has(employee.EmployeeID));
+      employees = employees.filter((e) => idSet.has(e.EmployeeID));
     }
 
-    const results: Array<{
-      EmployeeID: number;
-      FullName: string;
-      WorkDays: number | null;
-      AbsentDays: number | null;
-      LeaveDays: number | null;
-      AttendanceDeduction: number;
-      OvertimePay: number;
-      BenefitDeductions: number;
-      PayrollAdjustments: number;
-      TaxDeduction: number;
-      NetSalary: number;
-    }> = [];
+    const periodDate = new Date(Date.UTC(year, month - 1, 1));
+    const results: Array<PayrollComponents & { EmployeeID: number; FullName: string }> = [];
     let totalNetSalary = 0;
 
     for (const employee of employees) {
-      const salaryMonth = new Date(Date.UTC(year, month - 1, 1));
-
-      // Lấy bản ghi lương của đúng tháng đang tính (nếu có)
-      // để giữ lại BaseSalary, Bonus, Deductions gốc của tháng đó.
-      // Nếu chưa có thì lấy từ bản ghi mới nhất làm mặc định.
-      const existingRecord = await this.salaryRepo
-        .createQueryBuilder('salary')
-        .where('salary.EmployeeID = :employeeId', {
-          employeeId: employee.EmployeeID,
-        })
-        .andWhere('MONTH(salary.SalaryMonth) = :month', { month })
-        .andWhere('YEAR(salary.SalaryMonth) = :year', { year })
-        .orderBy('salary.SalaryID', 'DESC')
-        .getOne();
-
+      const existingRecord = await this.findSalaryByEmployeeAndPeriod(
+        employee.EmployeeID, month, year,
+      );
       const fallbackSalary = await this.salaryRepo.findOne({
         where: { EmployeeID: employee.EmployeeID },
         order: { SalaryMonth: 'DESC', SalaryID: 'DESC' },
       });
-
       const source = existingRecord ?? fallbackSalary;
 
       const baseSalary = Number(source?.BaseSalary ?? 0);
-      const bonus = Number(source?.Bonus ?? 0);
-      const deductions = Number(source?.Deductions ?? 0);
-      const attendance = await this.findAttendanceByEmployeeAndPeriod(
-        employee.EmployeeID,
-        month,
-        year,
-      );
-      const attendanceDeduction = this.calculateAttendanceDeduction(
-        baseSalary,
-        attendance,
-      );
-      const policyInputs = await this.calculatePolicyInputs(
-        employee.EmployeeID,
-        month,
-        year,
-        baseSalary,
-      );
-
-      // NetSalary includes policy, benefit, overtime and adjustment inputs.
-      const netSalary = this.calculateNetSalary(
-        baseSalary,
-        bonus + policyInputs.overtimePay + policyInputs.adjustmentAdditions,
-        deductions +
-          attendanceDeduction +
-          policyInputs.benefitDeductions +
-          policyInputs.adjustmentDeductions +
-          policyInputs.taxDeduction,
+      const components = await this.computePayrollComponents(
+        employee.EmployeeID, month, year, baseSalary, periodDate,
       );
 
       let salary = existingRecord;
-
       if (salary) {
         Object.assign(salary, {
-          BaseSalary: baseSalary,
-          Bonus: bonus + policyInputs.overtimePay + policyInputs.adjustmentAdditions,
+          BaseSalary: components.baseSalary,
+          Bonus: components.overtimePay + components.kpiBonus + components.adjustmentAdditions,
           Deductions:
-            deductions +
-            policyInputs.benefitDeductions +
-            policyInputs.adjustmentDeductions +
-            policyInputs.taxDeduction,
-          NetSalary: netSalary,
+            components.attendanceDeduction +
+            components.insuranceDeduction +
+            components.benefitDeductions +
+            components.adjustmentDeductions +
+            components.pitTax,
+          NetSalary: components.netSalary,
           CreatedAt: new Date(),
         });
       } else {
         salary = this.salaryRepo.create({
           EmployeeID: employee.EmployeeID,
-          SalaryMonth: salaryMonth,
-          BaseSalary: baseSalary,
-          Bonus: bonus,
-          Deductions: deductions,
-          NetSalary: netSalary,
+          SalaryMonth: periodDate,
+          BaseSalary: components.baseSalary,
+          Bonus: components.overtimePay + components.kpiBonus + components.adjustmentAdditions,
+          Deductions:
+            components.attendanceDeduction +
+            components.insuranceDeduction +
+            components.benefitDeductions +
+            components.adjustmentDeductions +
+            components.pitTax,
+          NetSalary: components.netSalary,
           CreatedAt: new Date(),
         });
       }
 
       const savedSalary = await this.salaryRepo.save(salary);
       await this.removeDuplicateSalaryRows(
-        employee.EmployeeID,
-        month,
-        year,
-        savedSalary.SalaryID,
+        employee.EmployeeID, month, year, savedSalary.SalaryID,
       );
 
-      totalNetSalary += netSalary;
+      totalNetSalary += components.netSalary;
       results.push({
         EmployeeID: employee.EmployeeID,
         FullName: employee.FullName,
-        WorkDays: attendance?.WorkDays ?? null,
-        AbsentDays: attendance?.AbsentDays ?? null,
-        LeaveDays: attendance?.LeaveDays ?? null,
-        AttendanceDeduction: attendanceDeduction,
-        OvertimePay: policyInputs.overtimePay,
-        BenefitDeductions: policyInputs.benefitDeductions,
-        PayrollAdjustments:
-          policyInputs.adjustmentAdditions - policyInputs.adjustmentDeductions,
-        TaxDeduction: policyInputs.taxDeduction,
-        NetSalary: netSalary,
+        ...components,
       });
     }
 
     return {
       status: 'success',
       message: `Payroll calculated for ${employees.length} employees`,
-      data: {
-        month,
-        year,
-        totalEmployees: employees.length,
-        totalNetSalary,
-        records: results,
-      },
+      data: { month, year, totalEmployees: employees.length, totalNetSalary, records: results },
     };
   }
 
@@ -259,25 +226,22 @@ export class PayrollService {
     }
 
     const existingRecord = await this.findSalaryByEmployeeAndPeriod(
-      payload.employeeId,
-      payload.month,
-      payload.year,
+      payload.employeeId, payload.month, payload.year,
     );
 
     const salaryMonth = new Date(Date.UTC(payload.year, payload.month - 1, 1));
-    const salary = existingRecord ?? this.salaryRepo.create({
-      EmployeeID: payload.employeeId,
-      SalaryMonth: salaryMonth,
-    });
+    const salary =
+      existingRecord ??
+      this.salaryRepo.create({
+        EmployeeID: payload.employeeId,
+        SalaryMonth: salaryMonth,
+      });
 
     await this.assignSalaryAmounts(salary, payload);
 
     const savedSalary = await this.salaryRepo.save(salary);
     await this.removeDuplicateSalaryRows(
-      payload.employeeId,
-      payload.month,
-      payload.year,
-      savedSalary.SalaryID,
+      payload.employeeId, payload.month, payload.year, savedSalary.SalaryID,
     );
 
     return {
@@ -316,6 +280,145 @@ export class PayrollService {
     };
   }
 
+  // ─── Core payroll computation ────────────────────────────────────────────────
+
+  /**
+   * Tính toán đầy đủ các thành phần lương theo SRS.
+   * Tách biệt hoàn toàn: base → gross → taxable → PIT → net
+   */
+  async computePayrollComponents(
+    employeeId: number,
+    month: number,
+    year: number,
+    baseSalary: number,
+    periodDate?: Date,
+  ): Promise<PayrollComponents> {
+    const forDate = periodDate ?? new Date(Date.UTC(year, month - 1, 1));
+
+    // Lấy policy đang active
+    const activePolicy = await this.salaryPolicyRepo.findOne({
+      where: { IsActive: true },
+      order: { EffectiveDate: 'DESC', PolicyID: 'DESC' },
+    });
+    const overtimeRate = Number(activePolicy?.OvertimeRate ?? 1.5);
+
+    // Tỷ lệ bảo hiểm nhân viên đóng từ policy (% trên lương cơ bản)
+    const socialInsRate = Number(activePolicy?.SocialIns ?? 8) / 100;
+    const healthInsRate = Number(activePolicy?.HealthIns ?? 1.5) / 100;
+    const unemployInsRate = Number(activePolicy?.UnemployIns ?? 1) / 100;
+
+    const hourlyBase =
+      baseSalary > 0 ? baseSalary / STANDARD_WORK_DAYS_PER_MONTH / 8 : 0;
+
+    // 1. Chấm công
+    const attendance = await this.findAttendanceByEmployeeAndPeriod(
+      employeeId, month, year,
+    );
+    const attendanceDeduction = this.computeAttendanceDeduction(
+      baseSalary, attendance,
+    );
+
+    // 2. Tăng ca (Approved)
+    const overtimeRows = await this.overtimeRepo
+      .createQueryBuilder('ot')
+      .where('ot.EmployeeID = :employeeId', { employeeId })
+      .andWhere('MONTH(ot.OvertimeDate) = :month', { month })
+      .andWhere('YEAR(ot.OvertimeDate) = :year', { year })
+      .andWhere("ot.Status = 'Approved'")
+      .getMany();
+    const overtimeHours = overtimeRows.reduce(
+      (sum, row) => sum + Number(row.Hours ?? 0), 0,
+    );
+    const overtimePay = Math.round(overtimeHours * hourlyBase * overtimeRate);
+
+    // 3. KPI bonus (Approved KPIs trong kỳ)
+    const kpiRows = await this.kpiRepo
+      .createQueryBuilder('kpi')
+      .where('kpi.EmployeeID = :employeeId', { employeeId })
+      .andWhere("kpi.PeriodType = 'Monthly'")
+      .andWhere(
+        "(kpi.Period = :period OR (MONTH(kpi.CreatedAt) = :month AND YEAR(kpi.CreatedAt) = :year))",
+        { period: `${year}-${String(month).padStart(2, '0')}`, month, year },
+      )
+      .andWhere("kpi.Status = 'Approved'")
+      .getMany();
+    const kpiBonus = kpiRows.reduce(
+      (sum, row) => sum + Number(row.BonusAmount ?? 0), 0,
+    );
+
+    // 4. Lợi ích/bảo hiểm nhân viên đóng
+    const benefits = await this.benefitsRepo.find({
+      where: { EmployeeID: employeeId, Status: 'Active' },
+    });
+    const benefitDeductions = benefits.reduce(
+      (sum, row) => sum + Number(row.EmployeeShare ?? 0), 0,
+    );
+
+    // 5. Điều chỉnh lương
+    const adjustments = await this.adjustmentRepo
+      .createQueryBuilder('adj')
+      .where('adj.EmployeeID = :employeeId', { employeeId })
+      .andWhere('MONTH(adj.SalaryMonth) = :month', { month })
+      .andWhere('YEAR(adj.SalaryMonth) = :year', { year })
+      .andWhere("adj.Status IN ('Approved', 'Applied')")
+      .getMany();
+    const adjustmentAdditions = adjustments
+      .filter((r) => ['Bonus', 'Allowance', 'Commission'].includes(r.AdjustType))
+      .reduce((sum, r) => sum + Number(r.Amount ?? 0), 0);
+    const adjustmentDeductions = adjustments
+      .filter((r) => r.AdjustType === 'Deduction')
+      .reduce((sum, r) => sum + Number(r.Amount ?? 0), 0);
+
+    // 6. Bảo hiểm xã hội (employee share theo tỷ lệ từ policy)
+    const socialIns = Math.round(baseSalary * socialInsRate);
+    const healthIns = Math.round(baseSalary * healthInsRate);
+    const unemployIns = Math.round(baseSalary * unemployInsRate);
+    const insuranceDeduction = socialIns + healthIns + unemployIns;
+
+    // 7. Lương gộp (gross)
+    const grossSalary = baseSalary + overtimePay + kpiBonus + adjustmentAdditions;
+
+    // 8. Thu nhập tính thuế
+    const taxableIncome = this.pitTaxService.computeTaxableIncome(
+      grossSalary,
+      0, // dependentCount — mặc định 0, có thể mở rộng sau
+      socialIns,
+      healthIns,
+      unemployIns,
+    );
+
+    // 9. Thuế TNCN theo bậc lũy tiến
+    const pitTax = await this.pitTaxService.calculatePIT(taxableIncome, forDate);
+
+    // 10. Lương thực nhận
+    const netSalary = Math.max(
+      0,
+      grossSalary -
+        attendanceDeduction -
+        insuranceDeduction -
+        benefitDeductions -
+        adjustmentDeductions -
+        pitTax,
+    );
+
+    return {
+      baseSalary,
+      grossSalary,
+      attendanceDeduction,
+      overtimePay,
+      kpiBonus,
+      insuranceDeduction,
+      benefitDeductions,
+      adjustmentAdditions,
+      adjustmentDeductions,
+      taxableIncome,
+      pitTax,
+      netSalary,
+    };
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+
   private isActiveEmployee(employee: EmployeesPayroll) {
     return isPayrollEligibleStatus(employee.Status);
   }
@@ -325,28 +428,36 @@ export class PayrollService {
     payload: Pick<UpsertPayrollDto, 'baseSalary' | 'bonus' | 'deductions'>,
   ) {
     const baseSalary = Number(payload.baseSalary ?? 0);
-    const bonus = Number(payload.bonus ?? 0);
-    const deductions = Number(payload.deductions ?? 0);
+    const manualBonus = Number(payload.bonus ?? 0);
+    const manualDeductions = Number(payload.deductions ?? 0);
 
     salary.BaseSalary = baseSalary;
-    salary.Bonus = bonus;
-    salary.Deductions = deductions;
     const salaryMonth = new Date(salary.SalaryMonth);
-    const attendance = await this.findAttendanceByEmployeeAndPeriod(
-      salary.EmployeeID,
-      salaryMonth.getUTCMonth() + 1,
-      salaryMonth.getUTCFullYear(),
-    );
-    const attendanceDeduction = this.calculateAttendanceDeduction(
-      baseSalary,
-      attendance,
+    const month = salaryMonth.getUTCMonth() + 1;
+    const year = salaryMonth.getUTCFullYear();
+
+    // Tính đầy đủ components (kể cả PIT)
+    const components = await this.computePayrollComponents(
+      salary.EmployeeID, month, year, baseSalary, salaryMonth,
     );
 
-    salary.NetSalary = this.calculateNetSalary(
-      baseSalary,
-      bonus,
-      deductions + attendanceDeduction,
-    );
+    // Bonus field = overtime + kpi + adjustments + manual bonus
+    salary.Bonus =
+      components.overtimePay +
+      components.kpiBonus +
+      components.adjustmentAdditions +
+      manualBonus;
+
+    // Deductions field = attendance + insurance + benefits + adjustmentDeductions + PIT + manual
+    salary.Deductions =
+      components.attendanceDeduction +
+      components.insuranceDeduction +
+      components.benefitDeductions +
+      components.adjustmentDeductions +
+      components.pitTax +
+      manualDeductions;
+
+    salary.NetSalary = Math.max(0, baseSalary + salary.Bonus - salary.Deductions);
     salary.CreatedAt = new Date();
   }
 
@@ -364,80 +475,12 @@ export class PayrollService {
       .getOne();
   }
 
-  private calculateNetSalary(
-    baseSalary: number,
-    bonus: number,
-    deductions: number,
-  ) {
-    return Math.max(0, baseSalary + bonus - deductions);
-  }
-
-  private async calculatePolicyInputs(
-    employeeId: number,
-    month: number,
-    year: number,
-    baseSalary: number,
-  ) {
-    const activePolicy = await this.salaryPolicyRepo.findOne({
-      where: { IsActive: true },
-      order: { EffectiveDate: 'DESC', PolicyID: 'DESC' },
-    });
-    const overtimeRate = Number(activePolicy?.OvertimeRate ?? 1.5);
-    const taxRate = Number(activePolicy?.TaxRate ?? 0);
-    const hourlyBase = baseSalary > 0 ? baseSalary / STANDARD_WORK_DAYS_PER_MONTH / 8 : 0;
-
-    const overtimeRows = await this.overtimeRepo
-      .createQueryBuilder('ot')
-      .where('ot.EmployeeID = :employeeId', { employeeId })
-      .andWhere('MONTH(ot.OvertimeDate) = :month', { month })
-      .andWhere('YEAR(ot.OvertimeDate) = :year', { year })
-      .andWhere("ot.Status = 'Approved'")
-      .getMany();
-    const overtimeHours = overtimeRows.reduce((sum, row) => sum + Number(row.Hours ?? 0), 0);
-    const overtimePay = Math.round(overtimeHours * hourlyBase * overtimeRate);
-
-    const benefits = await this.benefitsRepo.find({
-      where: { EmployeeID: employeeId, Status: 'Active' },
-    });
-    const benefitDeductions = benefits.reduce(
-      (sum, row) => sum + Number(row.EmployeeShare ?? 0),
-      0,
-    );
-
-    const adjustments = await this.adjustmentRepo
-      .createQueryBuilder('adjustment')
-      .where('adjustment.EmployeeID = :employeeId', { employeeId })
-      .andWhere('MONTH(adjustment.SalaryMonth) = :month', { month })
-      .andWhere('YEAR(adjustment.SalaryMonth) = :year', { year })
-      .andWhere("adjustment.Status IN ('Approved', 'Applied')")
-      .getMany();
-    const adjustmentAdditions = adjustments
-      .filter((row) => ['Bonus', 'Allowance', 'Commission'].includes(row.AdjustType))
-      .reduce((sum, row) => sum + Number(row.Amount ?? 0), 0);
-    const adjustmentDeductions = adjustments
-      .filter((row) => row.AdjustType === 'Deduction')
-      .reduce((sum, row) => sum + Number(row.Amount ?? 0), 0);
-    const taxDeduction = Math.round((baseSalary * taxRate) / 100);
-
-    return {
-      overtimePay,
-      benefitDeductions,
-      adjustmentAdditions,
-      adjustmentDeductions,
-      taxDeduction,
-    };
-  }
-
-  private calculateAttendanceDeduction(
+  private computeAttendanceDeduction(
     baseSalary: number,
     attendance?: Attendance | null,
   ) {
     const absentDays = Number(attendance?.AbsentDays ?? 0);
-
-    if (!baseSalary || absentDays <= 0) {
-      return 0;
-    }
-
+    if (!baseSalary || absentDays <= 0) return 0;
     return Math.round((baseSalary / STANDARD_WORK_DAYS_PER_MONTH) * absentDays);
   }
 
@@ -460,20 +503,9 @@ export class PayrollService {
     const month = salaryMonth.getUTCMonth() + 1;
     const year = salaryMonth.getUTCFullYear();
     const baseSalary = Number(record.BaseSalary ?? 0);
-    const attendance = await this.findAttendanceByEmployeeAndPeriod(
-      record.EmployeeID,
-      month,
-      year,
-    );
-    const attendanceDeduction = this.calculateAttendanceDeduction(
-      baseSalary,
-      attendance,
-    );
-    const policyInputs = await this.calculatePolicyInputs(
-      record.EmployeeID,
-      month,
-      year,
-      baseSalary,
+
+    const components = await this.computePayrollComponents(
+      record.EmployeeID, month, year, baseSalary, salaryMonth,
     );
 
     return {
@@ -481,19 +513,24 @@ export class PayrollService {
       EmployeeID: record.EmployeeID,
       FullName: record.employee?.FullName ?? null,
       SalaryMonth: record.SalaryMonth,
+      // Stored amounts
       BaseSalary: record.BaseSalary,
       Bonus: record.Bonus,
       Deductions: record.Deductions,
-      AttendanceDeduction: attendanceDeduction,
-      OvertimePay: policyInputs.overtimePay,
-      BenefitDeductions: policyInputs.benefitDeductions,
-      PayrollAdjustments:
-        policyInputs.adjustmentAdditions - policyInputs.adjustmentDeductions,
-      TaxDeduction: policyInputs.taxDeduction,
-      WorkDays: attendance?.WorkDays ?? null,
-      AbsentDays: attendance?.AbsentDays ?? null,
-      LeaveDays: attendance?.LeaveDays ?? null,
       NetSalary: record.NetSalary,
+      // Computed breakdown
+      GrossSalary: components.grossSalary,
+      AttendanceDeduction: components.attendanceDeduction,
+      OvertimePay: components.overtimePay,
+      KpiBonus: components.kpiBonus,
+      InsuranceDeduction: components.insuranceDeduction,
+      BenefitDeductions: components.benefitDeductions,
+      PayrollAdjustments: components.adjustmentAdditions - components.adjustmentDeductions,
+      TaxableIncome: components.taxableIncome,
+      PitTax: components.pitTax,
+      WorkDays: null as number | null,
+      AbsentDays: null as number | null,
+      LeaveDays: null as number | null,
       CreatedAt: record.CreatedAt,
     };
   }
@@ -503,11 +540,7 @@ export class PayrollService {
       where: { SalaryID: salaryId },
       relations: ['employee'],
     });
-
-    if (!record) {
-      return null;
-    }
-
+    if (!record) return null;
     return this.serializeSalaryRecord(record);
   }
 

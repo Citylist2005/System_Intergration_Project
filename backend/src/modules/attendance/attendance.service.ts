@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ok } from '../../common/api-response';
 import { Attendance } from '../../database/payroll/entities/attendance.entity';
+import { HumanAttendance } from '../../database/human/entities/attendance.entity';
 import { AuditActor, AuditService } from '../audit/audit.service';
 
 interface FindAllParams {
@@ -24,6 +25,8 @@ export class AttendanceService {
   constructor(
     @InjectRepository(Attendance, 'payrollConnection')
     private readonly attendanceRepo: Repository<Attendance>,
+    @InjectRepository(HumanAttendance, 'humanConnection')
+    private readonly humanAttendanceRepo: Repository<HumanAttendance>,
     private readonly auditService: AuditService,
   ) {}
 
@@ -214,6 +217,62 @@ export class AttendanceService {
     return ok('Đã lưu dữ liệu công thủ công', saved);
   }
 
+  async bulkUpsert(
+    rows: Array<{
+      employeeId: number;
+      month: number;
+      year: number;
+      workDays: number;
+      absentDays: number;
+      leaveDays: number;
+      overtimeHours?: number;
+    }>,
+    actor?: AuditActor,
+    ipAddress?: string,
+  ) {
+    const saved = await this.attendanceRepo.manager.transaction(async (manager) => {
+      const results: Attendance[] = [];
+      for (const row of rows) {
+        const attendanceMonth = new Date(Date.UTC(row.year, row.month - 1, 1));
+        let record = await manager
+          .createQueryBuilder(Attendance, 'attendance')
+          .where('attendance.EmployeeID = :employeeId', { employeeId: row.employeeId })
+          .andWhere('MONTH(attendance.AttendanceMonth) = :month', { month: row.month })
+          .andWhere('YEAR(attendance.AttendanceMonth) = :year', { year: row.year })
+          .orderBy('attendance.AttendanceID', 'DESC')
+          .getOne();
+
+        record =
+          record ??
+          manager.create(Attendance, {
+            EmployeeID: row.employeeId,
+            AttendanceMonth: attendanceMonth,
+          });
+
+        record.WorkDays = Number(row.workDays ?? 0);
+        record.AbsentDays = Number(row.absentDays ?? 0);
+        record.LeaveDays = Number(row.leaveDays ?? 0);
+        record.OvertimeHours = Number(row.overtimeHours ?? 0);
+        record.CreatedAt = new Date();
+        results.push(await manager.save(Attendance, record));
+      }
+      return results;
+    });
+
+    await this.auditService.write({
+      actor,
+      action: 'BULK_UPSERT',
+      entityType: 'Attendance',
+      newValues: { count: saved.length },
+      ipAddress,
+    });
+
+    return ok('ÄÃ£ lÆ°u dá»¯ liá»‡u cÃ´ng hÃ ng loáº¡t', {
+      count: saved.length,
+      records: saved,
+    });
+  }
+
   async updateManual(
     id: number,
     payload: {
@@ -249,5 +308,32 @@ export class AttendanceService {
     });
 
     return ok('Đã cập nhật dữ liệu công', saved);
+  }
+
+  /**
+   * Fetch specific dates of absence/leave from the legacy human system
+   */
+  async getDailyAbsences(employeeId: number, month: number, year: number) {
+    // Try to find ANY records for this employee/month in the human system
+    // The table might be the summary table or daily table.
+    // Based on my findings, the 'attendance' table has AttendanceMonth.
+    const qb = this.humanAttendanceRepo
+      .createQueryBuilder('ha')
+      .where('ha.EmployeeID = :employeeId', { employeeId })
+      .andWhere('(MONTH(ha.AttendanceMonth) = :month OR MONTH(ha.AttendanceDate) = :month)', { month })
+      .andWhere('(YEAR(ha.AttendanceMonth) = :year OR YEAR(ha.AttendanceDate) = :year)', { year })
+      .orderBy('ha.AttendanceID', 'ASC');
+
+    const records = await qb.getMany();
+
+    return {
+      status: 'success',
+      data: records.map((r) => ({
+        date: r.AttendanceDate || r.AttendanceMonth,
+        status: r.Status || (r.AbsentDays > 0 ? `Vắng ${r.AbsentDays} ngày` : 'Bình thường'),
+        checkIn: r.CheckIn,
+        checkOut: r.CheckOut,
+      })),
+    };
   }
 }
